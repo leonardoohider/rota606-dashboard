@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 
 const PAGE_IDS = {
-  chamadosDB: 'e23c2dda18c547d6b023b09165eef552',
+  assistenciaTecnica: '38793fb1601f81c4b22adee0f464d232',
   frescos:    '38893fb1601f81ebbd7ac56637d8e95a',
   pdv806477:  '37493fb1601f80649eeeffcd6d4c3772',
   pdv807542:  '37493fb1601f818ca971d90764e2752c',
 }
+
+const MESES_PT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez']
 
 function getMesLabel() {
   return new Date().toLocaleDateString('pt-PT', { month: 'long', year: 'numeric' })
@@ -419,6 +421,8 @@ function PDVCard({id, label, pageId, itens, onSave}) {
     return d.toLocaleDateString('pt-PT', {day:'2-digit',month:'2-digit',year:'numeric'})
   }
 
+  const [confirmDeleteItem, setConfirmDeleteItem] = useState(null)
+
   const adicionar = async () => {
     if (!qtd.trim() || !produto.trim()) return
     const novoItem = `${qtd.trim()} ${produto.trim()}`
@@ -427,6 +431,14 @@ function PDVCard({id, label, pageId, itens, onSave}) {
     await onSave(id, novosItens)
     setSaving(false)
     setQtd(''); setProduto('')
+  }
+
+  const deletarItem = async (idx) => {
+    const novosItens = itens.filter((_,i) => i !== idx)
+    setSaving(true)
+    await onSave(id, novosItens)
+    setSaving(false)
+    setConfirmDeleteItem(null)
   }
 
   const limpar = async () => {
@@ -460,10 +472,25 @@ function PDVCard({id, label, pageId, itens, onSave}) {
               📋 Para amanhã, {amanha()}
             </div>
             <div style={{background:C.bg,borderRadius:'8px',padding:'12px',border:`1px solid ${C.border}`}}>
-              {itens.map((item, i) => (
+              {confirmDeleteItem !== null && (
+              <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'#000000aa',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
+                <div style={{background:C.card,border:`1px solid ${C.danger}44`,borderRadius:'12px',padding:'24px',maxWidth:'300px',width:'100%'}}>
+                  <div style={{fontSize:'22px',textAlign:'center',marginBottom:'10px'}}>⚠️</div>
+                  <div style={{fontWeight:600,textAlign:'center',color:C.text,marginBottom:'6px'}}>Apagar produto?</div>
+                  <div style={{color:C.muted,fontSize:'13px',textAlign:'center',marginBottom:'6px'}}>"{itens[confirmDeleteItem]}"</div>
+                  <div style={{color:C.muted,fontSize:'12px',textAlign:'center',marginBottom:'18px'}}>Só este produto será removido da lista.</div>
+                  <div style={{display:'flex',gap:'8px'}}>
+                    <button onClick={() => setConfirmDeleteItem(null)} style={{flex:1,background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'6px',padding:'10px',cursor:'pointer',fontSize:'13px'}}>Cancelar</button>
+                    <button onClick={() => deletarItem(confirmDeleteItem)} style={{flex:1,background:'transparent',color:C.danger,border:`1px solid ${C.danger}44`,borderRadius:'6px',padding:'10px',fontWeight:600,cursor:'pointer',fontSize:'13px'}}>Apagar</button>
+                  </div>
+                </div>
+              </div>
+            )}
+            {itens.map((item, i) => (
                 <div key={i} style={{display:'flex',alignItems:'center',gap:'8px',padding:'6px 0',borderBottom: i < itens.length-1 ? `1px solid ${C.border}` : 'none'}}>
                   <div style={{width:'6px',height:'6px',borderRadius:'50%',background:C.accent,flexShrink:0}}/>
-                  <div style={{color:C.text,fontSize:'14px'}}>{item}</div>
+                  <div style={{color:C.text,fontSize:'14px',flex:1}}>{item}</div>
+                  <button onClick={() => setConfirmDeleteItem(i)} style={{background:'transparent',border:'none',color:C.muted,cursor:'pointer',fontSize:'16px',padding:'0 4px',lineHeight:1,flexShrink:0}} title="Apagar produto">✕</button>
                 </div>
               ))}
             </div>
@@ -723,7 +750,7 @@ function TabInventario() {
 
       const listaMaquinas = TODAS_MAQUINAS.map(m => `${m.pdv} (${m.cliente} — ${m.modelo})`).join('\n')
 
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await fetch('/api/claude', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -920,25 +947,48 @@ export default function App() {
   }
 
   const fetchChamados = async () => {
-    const { inicio, fim } = getMesRange()
-    const data = await nPost(`databases/${PAGE_IDS.chamadosDB}/query`, {
-      filter: {
-        and: [
-          { property: 'Data do Chamado', date: { on_or_after: inicio } },
-          { property: 'Data do Chamado', date: { on_or_before: fim } },
-        ]
-      },
-      sorts: [{ property: 'Data do Chamado', direction: 'descending' }]
-    })
-    if (!data.results) return []
-    return data.results.map(r => ({
-      pageId: r.id,
-      cliente: r.properties?.Cliente?.rich_text?.[0]?.plain_text || '–',
-      maquina: r.properties?.['Máquina PDV']?.rich_text?.[0]?.plain_text || '–',
-      problema: r.properties?.Problema?.rich_text?.[0]?.plain_text || '',
-      data: r.properties?.['Data do Chamado']?.date?.start || '–',
-      url: `https://notion.so/${r.id.replace(/-/g,'')}`,
-    }))
+    try {
+      const now = new Date()
+      const mesAbrev = MESES_PT[now.getMonth()]
+      const ano = now.getFullYear()
+
+      // Buscar subpastas da pasta AT
+      const folders = await nGet(`blocks/${PAGE_IDS.assistenciaTecnica}/children`, { page_size: '20' })
+      if (!folders.results) return []
+
+      // Encontrar subpasta do mês atual pelo título (ex: "Jun/2026")
+      const subpasta = folders.results.find(b => {
+        if (b.type !== 'child_page') return false
+        const t = (b.child_page?.title || '').toLowerCase()
+        return t.includes(mesAbrev) && t.includes(String(ano))
+      })
+
+      if (!subpasta) return []
+
+      // Buscar chamados dentro da subpasta
+      const chamadosData = await nGet(`blocks/${subpasta.id}/children`, { page_size: '50' })
+      if (!chamadosData.results) return []
+
+      return chamadosData.results
+        .filter(b => b.type === 'child_page')
+        .map(b => {
+          const titulo = b.child_page?.title || ''
+          const matchCliente = titulo.match(/–\s*(.+?)\s*[|]/)
+          const matchMaq = titulo.match(/Máq\.?\s*([\w]+)/)
+          const matchDesc = titulo.match(/Máq\.?\s*[\w]+\s*–\s*(.+)$/)
+          return {
+            pageId: b.id,
+            titulo: titulo.replace(/🔧\s*Chamado Técnico\s*–\s*/,''),
+            cliente: matchCliente?.[1]?.trim() || '–',
+            maquina: matchMaq?.[1]?.trim() || '–',
+            problema: matchDesc?.[1]?.trim() || '',
+            url: `https://notion.so/${b.id.replace(/-/g,'')}`,
+          }
+        })
+    } catch(e) {
+      console.error('fetchChamados error:', e)
+      return []
+    }
   }
 
   const sync = useCallback(async () => {
@@ -1006,14 +1056,26 @@ export default function App() {
         <SyncBar lastSync={lastSync} syncing={syncing} ok={syncOk} onSync={sync}/>
       </header>
 
-      <nav style={S.nav}>
-        {TABS.map((t,i)=>(
-          <button key={i} style={S.navBtn(tab===i)} onClick={()=>setTab(i)}>
-            <span>{t}</span>
-            <span style={{display:'block',fontSize:'10px'}}>{TAB_LABELS[i]}</span>
-          </button>
-        ))}
-      </nav>
+      <div style={{position:'relative',background:'#161B22',borderBottom:'1px solid #21262D'}}>
+        <nav style={S.nav}>
+          {TABS.map((t,i)=>(
+            <button key={i} style={S.navBtn(tab===i)} onClick={()=>setTab(i)}>
+              <span>{t}</span>
+              <span style={{display:'block',fontSize:'10px'}}>{TAB_LABELS[i]}</span>
+            </button>
+          ))}
+        </nav>
+        {/* Gradiente direita — indica scroll */}
+        <div style={{position:'absolute',right:0,top:0,bottom:0,width:'32px',background:'linear-gradient(to right, transparent, #161B22)',pointerEvents:'none'}}/>
+        {/* Gradiente esquerda */}
+        <div style={{position:'absolute',left:0,top:0,bottom:0,width:'16px',background:'linear-gradient(to left, transparent, #161B22)',pointerEvents:'none'}}/>
+        {/* Barra de scroll indicator */}
+        <div style={{display:'flex',justifyContent:'center',gap:'4px',padding:'3px 0',background:'#161B22'}}>
+          {TABS.map((_,i) => (
+            <div key={i} onClick={()=>setTab(i)} style={{width: tab===i ? '16px' : '4px',height:'3px',borderRadius:'2px',background: tab===i ? '#10D9A0' : '#30363D',transition:'all 0.2s',cursor:'pointer'}}/>
+          ))}
+        </div>
+      </div>
 
       <main style={S.main}>
         {tab===0 && <TabInicio chamados={chamados} loading={loading} onVerFresco={setFrescoAtivo}/>}
@@ -1065,7 +1127,7 @@ function TabGestaoRota() {
         reader.readAsDataURL(file)
       })
 
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await fetch('/api/claude', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
