@@ -11,33 +11,26 @@ const PAGE_IDS = {
   pdv807542:  '37493fb1601f818ca971d90764e2752c',
 }
 
-const NOTION_BASE = '/api/notion'
-
-async function notionGet(path, params = {}) {
+async function notionGet(notionPath, params = {}) {
   const qs = Object.entries(params).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&')
-  const url = `${NOTION_BASE}/${path}${qs ? '?' + qs : ''}`
+  const url = `/api/notion?notionPath=${encodeURIComponent(notionPath)}${qs ? '&' + qs : ''}`
   const r = await fetch(url)
   return r.json()
 }
 
-async function notionPatch(path, body) {
-  const url = `${NOTION_BASE}/${path}`
-  const r = await fetch(url, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  return r.json()
-}
-
-async function notionPost(path, body) {
-  const url = `${NOTION_BASE}/${path}`
+async function notionPost(notionPath, body) {
+  const url = `/api/notion?notionPath=${encodeURIComponent(notionPath)}`
   const r = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
   return r.json()
+}
+
+async function notionDelete(notionPath) {
+  const url = `/api/notion?notionPath=${encodeURIComponent(notionPath)}`
+  return fetch(url, { method: 'DELETE' })
 }
 
 // ─── ESTILOS ────────────────────────────────────────────────
@@ -305,7 +298,6 @@ function SyncBar({ lastSync, syncing, ok, onSync }) {
 
 // ─── ABA INÍCIO ─────────────────────────────────────────────
 function TabInicio({ pdvYoung, pdv1050, loading }) {
-  const dias = Object.keys(ROTA)
   const diaAtual = ['', '2ª Feira', '3ª Feira', '4ª Feira', '5ª Feira', '6ª Feira'][new Date().getDay()] || '2ª Feira'
 
   return (
@@ -660,31 +652,26 @@ export default function App() {
     return () => clearInterval(interval)
   }, [sync])
 
-  // Guardar no Notion a partir do dashboard
   const savePdv = async (pdv, text) => {
     const pageId = pdv === 'young' ? PAGE_IDS.pdv806477 : PAGE_IDS.pdv807542
 
-    // 1. Apagar blocos existentes
     const existing = await notionGet(`blocks/${pageId}/children`, { page_size: '50' })
     if (existing.results) {
       for (const block of existing.results) {
-        await fetch(`${NOTION_BASE}/blocks/${block.id}`, { method: 'DELETE' })
+        await notionDelete(`blocks/${block.id}`)
       }
     }
 
     if (text.trim()) {
-      // 2. Criar novos blocos
       const linhas = text.split('\n').filter(Boolean)
       const children = linhas.map(l => ({
         object: 'block',
         type: 'paragraph',
         paragraph: { rich_text: [{ type: 'text', text: { content: l } }] }
       }))
-
       await notionPost(`blocks/${pageId}/children`, { children })
     }
 
-    // 3. Atualizar estado local
     if (pdv === 'young') setPdvYoung(text)
     else setPdv1050(text)
   }
