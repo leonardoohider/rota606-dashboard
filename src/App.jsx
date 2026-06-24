@@ -750,22 +750,12 @@ function TabInventario() {
 
       const listaMaquinas = TODAS_MAQUINAS.map(m => `${m.pdv} (${m.cliente} — ${m.modelo})`).join('\n')
 
-      const response = await fetch('/api/claude', {
+      const response = await fetch('/api/gemini', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 2000,
-          messages: [{
-            role: 'user',
-            content: [
-              {
-                type: 'document',
-                source: { type: 'base64', media_type: 'application/pdf', data: base64 }
-              },
-              {
-                type: 'text',
-                text: `És um assistente de gestão de rota de máquinas vending.
+          pdfBase64: base64,
+          prompt: `És um assistente de gestão de rota de máquinas vending.
 
 Esta é a lista COMPLETA de máquinas da Rota 606:
 ${listaMaquinas}
@@ -780,14 +770,11 @@ Responde APENAS em JSON válido, sem texto antes ou depois, neste formato exato:
   "total_em_falta": 30,
   "resumo": "Breve descrição do que encontraste no PDF"
 }`
-              }
-            ]
-          }]
         })
       })
 
       const data = await response.json()
-      const texto = data.content?.[0]?.text || ''
+      const texto = data.text || ''
       const clean = texto.replace(/\`\`\`json|\`\`\`/g, '').trim()
       const parsed = JSON.parse(clean)
 
@@ -1127,19 +1114,12 @@ function TabGestaoRota() {
         reader.readAsDataURL(file)
       })
 
-      const response = await fetch('/api/claude', {
+      const response = await fetch('/api/gemini', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 4000,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
-              {
-                type: 'text',
-                text: `És um analista de gestão de rota de máquinas vending especializado. Analisa este ficheiro PDF da Rota 606.
+          pdfBase64: base64,
+          prompt: `És um analista de gestão de rota de máquinas vending especializado. Analisa este ficheiro PDF da Rota 606.
 
 Extrai TODOS os dados de abastecimento, devoluções e danificados da Rota 606.
 
@@ -1170,14 +1150,11 @@ Responde APENAS em JSON válido sem texto antes ou depois:
   "alertas": ["Alerta 1", "Alerta 2"],
   "conclusao": "Análise resumida em 2-3 frases simples"
 }`
-              }
-            ]
-          }]
         })
       })
 
       const data = await response.json()
-      const texto = data.content?.[0]?.text || ''
+      const texto = data.text || ''
       const clean = texto.replace(/```json|```/g, '').trim()
       const parsed = JSON.parse(clean)
       setAnalise(parsed)
