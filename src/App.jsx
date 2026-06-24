@@ -680,9 +680,7 @@ function PDVCard({id, label, pageId, itens, onSave}) {
           </div>
         </div>
 
-        <a href={`https://notion.so/${pageId}`} target="_blank" rel="noreferrer" style={S.link}>
-          Abrir no Notion ↗
-        </a>
+
       </div>
     </>
   )
@@ -925,8 +923,15 @@ Responde APENAS em JSON válido, sem texto antes ou depois, neste formato exato:
         })
       })
 
-      const data = await response.json()
-      const texto = data.text || ''
+      if (!response.ok) {
+        const errText = await response.text()
+        throw new Error(`Erro do servidor (${response.status}): ${errText.slice(0,200)}`)
+      }
+      const raw = await response.text()
+      if (!raw || raw.trim() === '') throw new Error('Resposta vazia do servidor. Verifica a GEMINI_API_KEY no Vercel.')
+      const data = JSON.parse(raw)
+      const texto = data.text || data.error || ''
+      if (data.error) throw new Error(data.error)
       const clean = texto.replace(/\`\`\`json|\`\`\`/g, '').trim()
       const parsed = JSON.parse(clean)
 
@@ -1439,8 +1444,15 @@ Responde APENAS em JSON válido sem texto antes ou depois:
         })
       })
 
-      const data = await response.json()
-      const texto = data.text || ''
+      if (!response.ok) {
+        const errText = await response.text()
+        throw new Error(`Erro do servidor (${response.status}): ${errText.slice(0,200)}`)
+      }
+      const raw = await response.text()
+      if (!raw || raw.trim() === '') throw new Error('Resposta vazia do servidor. Verifica a GEMINI_API_KEY no Vercel.')
+      const data = JSON.parse(raw)
+      const texto = data.text || data.error || ''
+      if (data.error) throw new Error(data.error)
       const clean = texto.replace(/```json|```/g, '').trim()
       const parsed = JSON.parse(clean)
       setAnalise(parsed)
