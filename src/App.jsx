@@ -1184,13 +1184,7 @@ function LoginPage({onLogin}) {
 const TABS = ['🏠','📋','📦','🥐','🛒','🗺️','📋','📊','🚨']
 const TAB_LABELS = ['Início','A.T.','BA Vidros','Config. Frescos','Frescos','Rota','Inventário','Gestão Rota','Piquete']
 
-export default function App() {
-  const [autenticado, setAutenticado] = useState(() => {
-    return sessionStorage.getItem('rota606_auth') === '1'
-  })
-
-  if (!autenticado) return <LoginPage onLogin={() => setAutenticado(true)} />
-
+function Dashboard() {
   const [tab,setTab] = useState(0)
   const [lastSync,setLastSync] = useState(null)
   const [syncing,setSyncing] = useState(false)
@@ -1887,4 +1881,16 @@ function TabPiquete() {
       </div>
     </div>
   )
+}
+
+export default function App() {
+  const [autenticado, setAutenticado] = useState(() => {
+    return sessionStorage.getItem('rota606_auth') === '1'
+  })
+
+  if (!autenticado) {
+    return <LoginPage onLogin={() => setAutenticado(true)} />
+  }
+
+  return <Dashboard />
 }
