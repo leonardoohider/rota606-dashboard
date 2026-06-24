@@ -257,7 +257,7 @@ function FrescoDetalhe({fresco, onBack}) {
 }
 
 // ── ABA INÍCIO ────────────────────────────────────────────────
-function TabInicio({chamados,loading,onVerFresco}) {
+function TabInicio({chamados,loading,onVerFresco,onVerAT}) {
   const diaIdx = new Date().getDay()
   const dias = ['','2ª Feira','3ª Feira','4ª Feira','5ª Feira','6ª Feira']
   const diaAtual = dias[diaIdx] || '2ª Feira'
@@ -328,68 +328,220 @@ function TabInicio({chamados,loading,onVerFresco}) {
       {/* Chamados do mês */}
       {chamados.length > 0 && (
         <div style={S.card}>
-          <div style={S.cardTitle}>🔧 Chamados este mês ({chamados.length})</div>
+          <div style={S.cardTitle}>🔧 ATs este mês ({chamados.length})</div>
           {chamados.slice(0,3).map((c,i) => (
             <div key={i} style={{padding:'8px 0',borderBottom:`1px solid ${C.border}`}}>
               <div style={{fontWeight:600,fontSize:'13px'}}>{c.cliente} — Máq. {c.maquina}</div>
               {c.problema && <div style={{color:C.muted,fontSize:'12px',marginTop:'2px'}}>{c.problema}</div>}
             </div>
           ))}
-          {chamados.length > 3 && <div style={{color:C.muted,fontSize:'12px',marginTop:'8px'}}>+{chamados.length-3} mais — ver aba Chamados</div>}
+          {chamados.length > 3 && (
+            <div onClick={()=>onVerAT()} style={{color:C.accent,fontSize:'13px',fontWeight:600,marginTop:'10px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'4px',background:`${C.accent}15`,padding:'6px 12px',borderRadius:'6px',border:`1px solid ${C.accent}33`}}>
+              +{chamados.length-3} mais — ver aba A.T. →
+            </div>
+          )}
         </div>
       )}
     </div>
   )
 }
 
-// ── ABA CHAMADOS ─────────────────────────────────────────────
-function TabChamados({chamados,loading}) {
+// ── DETALHE CHAMADO ──────────────────────────────────────────
+function ChamadoDetalhe({chamado, onBack, onDelete}) {
+  const [confirmDel, setConfirmDel] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [conteudo, setConteudo] = useState([])
+  const [loadingContent, setLoadingContent] = useState(true)
+
+  useEffect(() => {
+    nGet(`blocks/${chamado.pageId}/children`, { page_size: '50' })
+      .then(data => {
+        const rows = []
+        if (data.results) {
+          data.results.forEach(b => {
+            if (b.type === 'table_row') {
+              const cells = b.table_row?.cells?.map(c => c.map(t => t.plain_text).join('')) || []
+              if (cells.length >= 2 && cells[0] && cells[1]) rows.push({ campo: cells[0], valor: cells[1] })
+            }
+            if (b.type === 'paragraph') {
+              const txt = b.paragraph?.rich_text?.map(t => t.plain_text).join('') || ''
+              if (txt) rows.push({ campo: '', valor: txt })
+            }
+            if (b.type === 'bulleted_list_item') {
+              const txt = b.bulleted_list_item?.rich_text?.map(t => t.plain_text).join('') || ''
+              if (txt) rows.push({ campo: '•', valor: txt })
+            }
+          })
+        }
+        setConteudo(rows)
+        setLoadingContent(false)
+      }).catch(() => setLoadingContent(false))
+  }, [chamado.pageId])
+
+  const ignorar = ['campo','cliente','número da máquina','data do chamado','status','tipo de máquina']
+
+  const handleDelete = async () => {
+    setDeleting(true)
+    await nPatch(`pages/${chamado.pageId}`, { archived: true })
+    setDeleting(false)
+    onDelete(chamado.pageId)
+  }
+
   return (
-    <div>
-      <div style={S.card}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
-          <div style={S.cardTitle}>🔧 Assistência Técnica — {getMesLabel()}</div>
-          <span style={S.badge(C.accent)}>{chamados.length} chamado{chamados.length!==1?'s':''}</span>
+    <>
+      {confirmDel && (
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'#000000bb',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
+          <div style={{background:C.card,border:`1px solid ${C.danger}44`,borderRadius:'12px',padding:'24px',maxWidth:'300px',width:'100%'}}>
+            <div style={{fontSize:'24px',textAlign:'center',marginBottom:'10px'}}>⚠️</div>
+            <div style={{fontWeight:600,textAlign:'center',color:C.text,marginBottom:'6px'}}>Apagar chamado?</div>
+            <div style={{color:C.muted,fontSize:'13px',textAlign:'center',marginBottom:'18px'}}>Esta AT será arquivada no Notion.</div>
+            <div style={{display:'flex',gap:'8px'}}>
+              <button onClick={() => setConfirmDel(false)} style={{flex:1,background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'6px',padding:'10px',cursor:'pointer',fontSize:'13px'}}>Cancelar</button>
+              <button onClick={handleDelete} disabled={deleting} style={{flex:1,background:'transparent',color:C.danger,border:`1px solid ${C.danger}44`,borderRadius:'6px',padding:'10px',fontWeight:600,cursor:'pointer',fontSize:'13px'}}>
+                {deleting ? 'A apagar…' : 'Apagar'}
+              </button>
+            </div>
+          </div>
         </div>
-        {loading
-          ? <span style={{color:C.muted}}>A carregar…</span>
-          : chamados.length === 0
-            ? <div style={{color:C.muted,padding:'24px 0',textAlign:'center'}}>
-                <div style={{fontSize:'24px',marginBottom:'8px'}}>📋</div>
-                <div>Sem chamados registados este mês</div>
-              </div>
-            : chamados.map((c,i) => (
-              <div key={i} style={{padding:'12px 0',borderBottom:`1px solid ${C.border}`}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px'}}>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:600,fontSize:'13px',color:C.text,marginBottom:'4px'}}>
-                      🔧 {c.cliente} — Máq. {c.maquina}
-                    </div>
-                    {c.problema && (
-                      <div style={{color:C.text,fontSize:'12px',background:C.bg,padding:'6px 8px',borderRadius:'6px',marginTop:'4px'}}>
-                        {c.problema}
-                      </div>
-                    )}
-                  </div>
-                  <a href={c.url} target="_blank" rel="noreferrer" style={{...S.link,marginTop:0,flexShrink:0}}>
-                    Ver ↗
-                  </a>
-                </div>
+      )}
+      <div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
+          <button onClick={onBack} style={S.btnSm}>← Voltar</button>
+          <button onClick={() => setConfirmDel(true)} style={S.btnDanger}>🗑 Apagar</button>
+        </div>
+        <div style={S.card}>
+          <div style={{display:'flex',alignItems:'center',gap:'12px',marginBottom:'16px'}}>
+            <div style={{background:`${C.danger}22`,borderRadius:'50%',width:'44px',height:'44px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'20px',flexShrink:0}}>🔧</div>
+            <div>
+              <div style={{fontWeight:700,fontSize:'15px',color:C.text}}>{chamado.cliente}</div>
+              <div style={{color:C.muted,fontSize:'12px',marginTop:'2px'}}>Máq. {chamado.maquina} · {chamado.data}</div>
+            </div>
+          </div>
+          <div style={{height:'1px',background:C.border,marginBottom:'14px'}}/>
+          {chamado.problema && (
+            <div style={{background:`${C.danger}11`,border:`1px solid ${C.danger}22`,borderRadius:'8px',padding:'12px',marginBottom:'12px'}}>
+              <div style={{color:C.danger,fontSize:'11px',fontWeight:600,marginBottom:'4px'}}>OCORRÊNCIA</div>
+              <div style={{color:C.text,fontSize:'13px',lineHeight:1.6}}>{chamado.problema}</div>
+            </div>
+          )}
+          {loadingContent ? <div style={{color:C.muted,fontSize:'13px'}}>A carregar detalhes…</div> : (
+            conteudo.filter(r => r.campo && !ignorar.includes(r.campo.toLowerCase())).map((r,i) => (
+              <div key={i} style={{padding:'8px 0',borderBottom:`1px solid ${C.border}`}}>
+                <div style={{color:C.muted,fontSize:'11px',fontWeight:600,marginBottom:'2px'}}>{r.campo.toUpperCase()}</div>
+                <div style={{color:C.text,fontSize:'13px',lineHeight:1.6}}>{r.valor}</div>
               </div>
             ))
-        }
-      </div>
-      <div style={{...S.card,background:'transparent',border:`1px dashed ${C.border}`,textAlign:'center',padding:'12px'}}>
-        <div style={{color:C.muted,fontSize:'12px'}}>
-          Histórico completo e detalhes disponíveis no Notion
+          )}
+          {conteudo.filter(r => r.campo === '•').length > 0 && (
+            <div style={{marginTop:'8px'}}>
+              {conteudo.filter(r => r.campo === '•').map((r,i) => (
+                <div key={i} style={{display:'flex',gap:'8px',padding:'4px 0',color:C.text,fontSize:'13px'}}>
+                  <span style={{color:C.accent}}>•</span>{r.valor}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-        <a href="https://app.notion.com/p/38793fb1601f81c4b22adee0f464d232" target="_blank" rel="noreferrer" style={S.link}>
-          Abrir Assistência Técnica no Notion ↗
-        </a>
       </div>
+    </>
+  )
+}
+
+// ── ABA CHAMADOS ─────────────────────────────────────────────
+function TabChamados({chamados, loading}) {
+  const [chamadoAtivo, setChamadoAtivo] = useState(null)
+  const [confirmDelId, setConfirmDelId] = useState(null)
+  const [lista, setLista] = useState(chamados)
+
+  useEffect(() => { setLista(chamados) }, [chamados])
+
+  const handleDelete = (pageId) => {
+    setLista(prev => prev.filter(c => c.pageId !== pageId))
+    setChamadoAtivo(null)
+  }
+
+  const porDia = lista.reduce((acc, c) => {
+    const key = c.dataISO || 'sem-data'
+    if (!acc[key]) acc[key] = []
+    acc[key].push(c)
+    return acc
+  }, {})
+  const diasOrdenados = Object.keys(porDia).sort((a,b) => b.localeCompare(a))
+
+  function formatDia(iso) {
+    if (!iso || iso === 'sem-data') return 'Data desconhecida'
+    const d = new Date(iso + 'T12:00:00')
+    return d.toLocaleDateString('pt-PT', { weekday:'long', day:'2-digit', month:'long', year:'numeric' })
+  }
+
+  if (chamadoAtivo) return <ChamadoDetalhe chamado={chamadoAtivo} onBack={() => setChamadoAtivo(null)} onDelete={handleDelete}/>
+
+  return (
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
+        <div style={S.cardTitle}>🔧 A.T. — {getMesLabel()}</div>
+        {lista.length > 0 && <span style={S.badge(C.accent)}>{lista.length}</span>}
+      </div>
+
+      {loading ? (
+        <div style={{...S.card,textAlign:'center',padding:'32px',color:C.muted}}>A carregar…</div>
+      ) : lista.length === 0 ? (
+        <div style={{...S.card,textAlign:'center',padding:'32px'}}>
+          <div style={{fontSize:'28px',marginBottom:'8px'}}>📋</div>
+          <div style={{color:C.muted}}>Sem assistências técnicas este mês</div>
+        </div>
+      ) : diasOrdenados.map(dia => (
+        <div key={dia} style={{marginBottom:'16px'}}>
+          <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'8px'}}>
+            <div style={{height:'1px',background:C.border,flex:1}}/>
+            <div style={{color:C.accent,fontSize:'11px',fontWeight:600,textTransform:'capitalize',whiteSpace:'nowrap',padding:'0 8px',background:`${C.accent}15`,borderRadius:'10px',border:`1px solid ${C.accent}33`}}>
+              📅 {formatDia(dia)}
+            </div>
+            <div style={{height:'1px',background:C.border,flex:1}}/>
+          </div>
+          {porDia[dia].map((c,i) => (
+            <div key={i} style={{...S.card,padding:'12px',marginBottom:'8px',cursor:'pointer',transition:'border-color 0.15s'}}
+              onMouseEnter={e => e.currentTarget.style.borderColor=`${C.accent}55`}
+              onMouseLeave={e => e.currentTarget.style.borderColor=C.border}>
+              <div style={{display:'flex',alignItems:'flex-start',gap:'8px'}}>
+                <div style={{flex:1}} onClick={() => setChamadoAtivo(c)}>
+                  <div style={{display:'flex',alignItems:'center',gap:'6px',marginBottom:'4px',flexWrap:'wrap'}}>
+                    <span style={{...S.badge(C.danger),fontSize:'10px'}}>🔧 AT</span>
+                    <span style={{fontWeight:600,fontSize:'13px',color:C.text}}>{c.cliente}</span>
+                    <span style={{color:C.muted,fontSize:'12px'}}>· Máq. {c.maquina}</span>
+                  </div>
+                  {c.problema && <div style={{color:C.text,fontSize:'12px',background:C.bg,padding:'6px 8px',borderRadius:'6px',marginBottom:'6px'}}>{c.problema}</div>}
+                  <div style={{color:C.accent,fontSize:'11px'}}>Ver detalhes →</div>
+                </div>
+                <button onClick={e => { e.stopPropagation(); setConfirmDelId(c.pageId) }}
+                  style={{background:'none',border:'none',color:C.muted,cursor:'pointer',fontSize:'18px',padding:'0 4px',flexShrink:0}}>✕</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {confirmDelId && (
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'#000000bb',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
+          <div style={{background:C.card,border:`1px solid ${C.danger}44`,borderRadius:'12px',padding:'24px',maxWidth:'300px',width:'100%'}}>
+            <div style={{fontSize:'24px',textAlign:'center',marginBottom:'10px'}}>⚠️</div>
+            <div style={{fontWeight:600,textAlign:'center',color:C.text,marginBottom:'6px'}}>Apagar chamado?</div>
+            <div style={{color:C.muted,fontSize:'13px',textAlign:'center',marginBottom:'18px'}}>Esta AT será arquivada no Notion.</div>
+            <div style={{display:'flex',gap:'8px'}}>
+              <button onClick={() => setConfirmDelId(null)} style={{flex:1,background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'6px',padding:'10px',cursor:'pointer',fontSize:'13px'}}>Cancelar</button>
+              <button onClick={async () => {
+                await nPatch(`pages/${confirmDelId}`, { archived: true })
+                setLista(prev => prev.filter(c => c.pageId !== confirmDelId))
+                setConfirmDelId(null)
+              }} style={{flex:1,background:'transparent',color:C.danger,border:`1px solid ${C.danger}44`,borderRadius:'6px',padding:'10px',fontWeight:600,cursor:'pointer',fontSize:'13px'}}>Apagar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+
 
 // ── POPUP CONFIRMAÇÃO ────────────────────────────────────────
 function ConfirmPopup({mensagem, onConfirm, onCancel}) {
@@ -913,11 +1065,137 @@ Responde APENAS em JSON válido, sem texto antes ou depois, neste formato exato:
   )
 }
 
+
+// ── LOGIN ─────────────────────────────────────────────────────
+function LoginPage({onLogin}) {
+  const [usuario, setUsuario] = useState('')
+  const [senha, setSenha] = useState('')
+  const [erro, setErro] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [mostrarSenha, setMostrarSenha] = useState(false)
+
+  const handleLogin = () => {
+    setErro('')
+    setLoading(true)
+    setTimeout(() => {
+      const u = usuario.trim().toUpperCase()
+      const s = senha.trim()
+      if (u === 'ROTA 606' && s === '251416') {
+        sessionStorage.setItem('rota606_auth', '1')
+        onLogin()
+      } else {
+        setErro('Utilizador ou senha incorretos.')
+        setLoading(false)
+      }
+    }, 600)
+  }
+
+  return (
+    <div style={{
+      minHeight:'100vh', background:'#0D1117', display:'flex',
+      alignItems:'center', justifyContent:'center', padding:'24px',
+      fontFamily:"'Segoe UI', system-ui, sans-serif"
+    }}>
+      <div style={{width:'100%', maxWidth:'360px'}}>
+
+        {/* Logo */}
+        <div style={{textAlign:'center', marginBottom:'32px'}}>
+          <div style={{fontSize:'40px', marginBottom:'12px'}}>☕</div>
+          <div style={{fontWeight:800, fontSize:'20px', color:'#10D9A0', letterSpacing:'1px'}}>ROTA 606</div>
+          <div style={{color:'#8B949E', fontSize:'13px', marginTop:'4px'}}>mybreak by Delta Cafés</div>
+        </div>
+
+        {/* Card login */}
+        <div style={{background:'#161B22', border:'1px solid #21262D', borderRadius:'14px', padding:'28px'}}>
+          <div style={{fontWeight:600, fontSize:'16px', color:'#E6EDF3', marginBottom:'6px'}}>Bem-vindo 👋</div>
+          <div style={{color:'#8B949E', fontSize:'13px', marginBottom:'24px'}}>Entra com as tuas credenciais</div>
+
+          {/* Utilizador */}
+          <div style={{marginBottom:'16px'}}>
+            <label style={{color:'#8B949E', fontSize:'12px', display:'block', marginBottom:'6px', fontWeight:600}}>UTILIZADOR</label>
+            <input
+              type="text"
+              value={usuario}
+              onChange={e => { setUsuario(e.target.value); setErro('') }}
+              onKeyDown={e => e.key === 'Enter' && handleLogin()}
+              placeholder="Ex: Rota 606"
+              style={{
+                width:'100%', boxSizing:'border-box',
+                background:'#0D1117', border:`1px solid ${erro ? '#F85149' : '#30363D'}`,
+                borderRadius:'8px', color:'#E6EDF3', padding:'12px 14px',
+                fontSize:'14px', outline:'none', fontFamily:'inherit'
+              }}
+            />
+          </div>
+
+          {/* Senha */}
+          <div style={{marginBottom:'20px'}}>
+            <label style={{color:'#8B949E', fontSize:'12px', display:'block', marginBottom:'6px', fontWeight:600}}>SENHA</label>
+            <div style={{position:'relative'}}>
+              <input
+                type={mostrarSenha ? 'text' : 'password'}
+                value={senha}
+                onChange={e => { setSenha(e.target.value); setErro('') }}
+                onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                placeholder="••••••"
+                style={{
+                  width:'100%', boxSizing:'border-box',
+                  background:'#0D1117', border:`1px solid ${erro ? '#F85149' : '#30363D'}`,
+                  borderRadius:'8px', color:'#E6EDF3', padding:'12px 40px 12px 14px',
+                  fontSize:'14px', outline:'none', fontFamily:'inherit'
+                }}
+              />
+              <button
+                onClick={() => setMostrarSenha(!mostrarSenha)}
+                style={{position:'absolute', right:'12px', top:'50%', transform:'translateY(-50%)', background:'none', border:'none', color:'#8B949E', cursor:'pointer', fontSize:'16px', padding:0}}
+              >
+                {mostrarSenha ? '🙈' : '👁️'}
+              </button>
+            </div>
+          </div>
+
+          {/* Erro */}
+          {erro && (
+            <div style={{background:'#F8514915', border:'1px solid #F8514944', borderRadius:'8px', padding:'10px 12px', marginBottom:'16px', color:'#F85149', fontSize:'13px', display:'flex', alignItems:'center', gap:'8px'}}>
+              ❌ {erro}
+            </div>
+          )}
+
+          {/* Botão */}
+          <button
+            onClick={handleLogin}
+            disabled={loading || !usuario || !senha}
+            style={{
+              width:'100%', background: (!loading && usuario && senha) ? '#10D9A0' : '#21262D',
+              color: (!loading && usuario && senha) ? '#0D1117' : '#8B949E',
+              border:'none', borderRadius:'8px', padding:'13px',
+              fontWeight:700, fontSize:'15px', cursor: (!loading && usuario && senha) ? 'pointer' : 'not-allowed',
+              transition:'all 0.2s', letterSpacing:'0.3px'
+            }}
+          >
+            {loading ? 'A verificar…' : 'Entrar'}
+          </button>
+        </div>
+
+        <div style={{textAlign:'center', marginTop:'20px', color:'#30363D', fontSize:'11px'}}>
+          Rota 606 Dashboard · mybreak by Delta Cafés
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── APP PRINCIPAL ─────────────────────────────────────────────
 const TABS = ['🏠','📋','📦','🥐','🛒','🗺️','📋','📊','🚨']
 const TAB_LABELS = ['Início','A.T.','BA Vidros','Config. Frescos','Frescos','Rota','Inventário','Gestão Rota','Piquete']
 
 export default function App() {
+  const [autenticado, setAutenticado] = useState(() => {
+    return sessionStorage.getItem('rota606_auth') === '1'
+  })
+
+  if (!autenticado) return <LoginPage onLogin={() => setAutenticado(true)} />
+
   const [tab,setTab] = useState(0)
   const [lastSync,setLastSync] = useState(null)
   const [syncing,setSyncing] = useState(false)
@@ -963,15 +1241,18 @@ export default function App() {
           const matchCliente = titulo.match(/–\s*(.+?)\s*[|]/)
           const matchMaq = titulo.match(/Máq\.?\s*([\w]+)/)
           const matchDesc = titulo.match(/Máq\.?\s*[\w]+\s*–\s*(.+)$/)
+          const dataISO = (b.created_time || '').split('T')[0]
+          const dataFmt = dataISO ? dataISO.split('-').reverse().join('/') : '–'
           return {
             pageId: b.id,
-            titulo: titulo.replace(/🔧\s*Chamado Técnico\s*–\s*/,''),
+            titulo: titulo.replace(/🔧\s*Chamado Técnico\s*–\s*/,'').replace(/\\|/g,'|'),
             cliente: matchCliente?.[1]?.trim() || '–',
             maquina: matchMaq?.[1]?.trim() || '–',
             problema: matchDesc?.[1]?.trim() || '',
-            url: `https://notion.so/${b.id.replace(/-/g,'')}`,
+            data: dataFmt,
+            dataISO,
           }
-        })
+        }).sort((a,b) => b.dataISO.localeCompare(a.dataISO))
     } catch(e) {
       console.error('fetchChamados error:', e)
       return []
@@ -1065,7 +1346,7 @@ export default function App() {
       </div>
 
       <main style={S.main}>
-        {tab===0 && <TabInicio chamados={chamados} loading={loading} onVerFresco={setFrescoAtivo}/>}
+        {tab===0 && <TabInicio chamados={chamados} loading={loading} onVerFresco={setFrescoAtivo} onVerAT={()=>setTab(1)}/>}
         {tab===1 && <TabChamados chamados={chamados} loading={loading}/>}
         {tab===2 && <TabBAVidros pdvYoung={pdvYoung} pdv1050={pdv1050} onSave={savePdv}/>}
         {tab===3 && <TabFrescos onVerFresco={setFrescoAtivo}/>}
