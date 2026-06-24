@@ -1,11 +1,22 @@
 import { useState, useEffect, useCallback } from 'react'
 
 const PAGE_IDS = {
-  chamadosJun: '38793fb1601f8137b406efc68d97b49e',
-  chamadosDB:  'e23c2dda18c547d6b023b09165eef552',
-  frescos:     '38893fb1601f81ebbd7ac56637d8e95a',
-  pdv806477:   '37493fb1601f80649eeeffcd6d4c3772',
-  pdv807542:   '37493fb1601f818ca971d90764e2752c',
+  chamadosDB: 'e23c2dda18c547d6b023b09165eef552',
+  frescos:    '38893fb1601f81ebbd7ac56637d8e95a',
+  pdv806477:  '37493fb1601f80649eeeffcd6d4c3772',
+  pdv807542:  '37493fb1601f818ca971d90764e2752c',
+}
+
+function getMesLabel() {
+  return new Date().toLocaleDateString('pt-PT', { month: 'long', year: 'numeric' })
+}
+
+function getMesRange() {
+  const now = new Date()
+  const inicio = new Date(now.getFullYear(), now.getMonth(), 1)
+  const fim = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  const fmt = d => d.toISOString().split('T')[0]
+  return { inicio: fmt(inicio), fim: fmt(fim) }
 }
 
 async function nGet(path, params = {}) {
@@ -156,16 +167,16 @@ const C = {
 
 const S = {
   app:{minHeight:'100vh',background:C.bg,color:C.text,fontFamily:"'Segoe UI',system-ui,sans-serif",fontSize:'14px'},
-  header:{background:C.card,borderBottom:`1px solid ${C.border}`,padding:'0 16px',display:'flex',alignItems:'center',justifyContent:'space-between',height:'56px',position:'sticky',top:0,zIndex:100},
+  header:{background:C.card,borderBottom:`1px solid ${C.border}`,padding:'0 16px',paddingLeft:'calc(16px + env(safe-area-inset-left))',paddingRight:'calc(16px + env(safe-area-inset-right))',paddingTop:'env(safe-area-inset-top)',display:'flex',alignItems:'center',justifyContent:'space-between',minHeight:'56px',position:'sticky',top:0,zIndex:100,width:'100%'},
   logo:{display:'flex',flexDirection:'column',lineHeight:1.2},
   logoMain:{fontWeight:700,fontSize:'15px',color:C.accent},
   logoSub:{fontSize:'10px',color:C.muted},
   syncBar:{display:'flex',alignItems:'center',gap:'8px',fontSize:'12px',color:C.muted},
   syncDot:(ok)=>({width:'8px',height:'8px',borderRadius:'50%',background:ok?C.accent:C.danger,flexShrink:0}),
   syncBtn:{background:'none',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'6px',padding:'4px 10px',cursor:'pointer',fontSize:'11px'},
-  nav:{display:'flex',borderBottom:`1px solid ${C.border}`,background:C.card,padding:'0 8px',gap:'2px',overflowX:'auto',WebkitOverflowScrolling:'touch'},
-  navBtn:(a)=>({padding:'12px 10px',background:'none',border:'none',color:a?C.accent:C.muted,borderBottom:a?`2px solid ${C.accent}`:'2px solid transparent',cursor:'pointer',fontWeight:a?600:400,fontSize:'13px',whiteSpace:'nowrap'}),
-  main:{padding:'16px',maxWidth:'900px',margin:'0 auto'},
+  nav:{display:'flex',borderBottom:`1px solid ${C.border}`,background:C.card,padding:'0 4px',paddingLeft:'calc(4px + env(safe-area-inset-left))',paddingRight:'calc(4px + env(safe-area-inset-right))',gap:'0',overflowX:'auto',WebkitOverflowScrolling:'touch',scrollbarWidth:'none',width:'100%'},
+  navBtn:(a)=>({padding:'14px 12px',background:a?`${C.accent}11`:'none',border:'none',color:a?C.accent:C.muted,borderBottom:a?`2px solid ${C.accent}`:'2px solid transparent',cursor:'pointer',fontWeight:a?700:400,fontSize:'13px',whiteSpace:'nowrap',transition:'all 0.15s',borderRadius:'0'}),
+  main:{padding:'16px',paddingLeft:'calc(16px + env(safe-area-inset-left))',paddingRight:'calc(16px + env(safe-area-inset-right))',paddingBottom:'calc(16px + env(safe-area-inset-bottom))',maxWidth:'900px',margin:'0 auto',width:'100%',flex:1},
   card:{background:C.card,border:`1px solid ${C.border}`,borderRadius:'10px',padding:'16px',marginBottom:'12px'},
   cardTitle:{fontWeight:600,fontSize:'14px',marginBottom:'12px',color:C.text,display:'flex',alignItems:'center',gap:'8px'},
   table:{width:'100%',borderCollapse:'collapse',fontSize:'13px'},
@@ -256,8 +267,6 @@ function TabInicio({chamados,loading,onVerFresco}) {
     return {...c, pdvsFrescos}
   }).filter(c => c.pdvsFrescos.length > 0)
 
-  const chamadosAtivos = chamados.filter(c => c.status !== '✅ Resolvido')
-
   return (
     <div>
       {/* Cabeçalho do dia */}
@@ -267,8 +276,8 @@ function TabInicio({chamados,loading,onVerFresco}) {
             <div style={{fontWeight:700,fontSize:'16px',color:C.accent}}>🗓️ {diaAtual}</div>
             <div style={{color:C.muted,fontSize:'12px',marginTop:'2px'}}>{today()} · {rotaHoje.length} clientes · {rotaHoje.reduce((a,c)=>a+c.maquinas.length,0)} máquinas</div>
           </div>
-          {chamadosAtivos.length > 0 && (
-            <div style={S.badge(C.danger)}>{chamadosAtivos.length} chamado{chamadosAtivos.length>1?'s':''}</div>
+          {chamados.length > 0 && (
+            <div style={S.badge(C.warning)}>{chamados.length} chamado{chamados.length>1?'s':''}</div>
           )}
         </div>
       </div>
@@ -314,19 +323,17 @@ function TabInicio({chamados,loading,onVerFresco}) {
         </div>
       )}
 
-      {/* Chamados ativos */}
-      {chamadosAtivos.length > 0 && (
+      {/* Chamados do mês */}
+      {chamados.length > 0 && (
         <div style={S.card}>
-          <div style={S.cardTitle}>⚠️ Chamados em Aberto</div>
-          {loading ? <span style={{color:C.muted}}>A carregar…</span> : chamadosAtivos.map((c,i) => (
+          <div style={S.cardTitle}>🔧 Chamados este mês ({chamados.length})</div>
+          {chamados.slice(0,3).map((c,i) => (
             <div key={i} style={{padding:'8px 0',borderBottom:`1px solid ${C.border}`}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <div style={{fontWeight:600,fontSize:'13px'}}>{c.cliente} · Máq. {c.maquina}</div>
-                <div style={S.badge(STATUS_COLOR[c.status]||C.muted)}>{c.status}</div>
-              </div>
-              <div style={{color:C.muted,fontSize:'12px',marginTop:'2px'}}>{c.problema}</div>
+              <div style={{fontWeight:600,fontSize:'13px'}}>{c.cliente} — Máq. {c.maquina}</div>
+              {c.problema && <div style={{color:C.muted,fontSize:'12px',marginTop:'2px'}}>{c.problema}</div>}
             </div>
           ))}
+          {chamados.length > 3 && <div style={{color:C.muted,fontSize:'12px',marginTop:'8px'}}>+{chamados.length-3} mais — ver aba Chamados</div>}
         </div>
       )}
     </div>
@@ -334,101 +341,194 @@ function TabInicio({chamados,loading,onVerFresco}) {
 }
 
 // ── ABA CHAMADOS ─────────────────────────────────────────────
-function TabChamados({chamados,loading,onStatusChange}) {
-  const ativos = chamados.filter(c => c.status !== '✅ Resolvido')
-  const resolvidos = chamados.filter(c => c.status === '✅ Resolvido')
-
+function TabChamados({chamados,loading}) {
   return (
     <div>
       <div style={S.card}>
-        <div style={S.cardTitle}>🔧 Chamados Ativos ({ativos.length})</div>
-        {loading ? <span style={{color:C.muted}}>A carregar…</span> :
-          ativos.length === 0 ? <div style={{color:C.muted,padding:'16px 0',textAlign:'center'}}>✅ Sem chamados em aberto</div> :
-          ativos.map((c,i) => (
-            <div key={i} style={{...S.card,marginBottom:'8px',padding:'12px'}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',flexWrap:'wrap'}}>
-                <div style={{flex:1}}>
-                  <div style={{fontWeight:600,fontSize:'13px',color:C.text,marginBottom:'4px'}}>{c.titulo}</div>
-                  <div style={{color:C.muted,fontSize:'12px'}}>📍 {c.cliente} · Máq. {c.maquina}</div>
-                  <div style={{color:C.muted,fontSize:'12px'}}>📅 {c.data}</div>
-                  {c.problema && <div style={{color:C.text,fontSize:'12px',marginTop:'6px',padding:'6px 8px',background:C.bg,borderRadius:'6px'}}>{c.problema}</div>}
-                </div>
-                <div style={{display:'flex',flexDirection:'column',gap:'6px',alignItems:'flex-end'}}>
-                  <select
-                    value={c.status}
-                    onChange={e => onStatusChange(c.pageId, e.target.value)}
-                    style={{...S.select,color:STATUS_COLOR[c.status]||C.text}}
-                  >
-                    {STATUS_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                  <a href={c.url} target="_blank" rel="noreferrer" style={S.link}>Abrir no Notion ↗</a>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
+          <div style={S.cardTitle}>🔧 Assistência Técnica — {getMesLabel()}</div>
+          <span style={S.badge(C.accent)}>{chamados.length} chamado{chamados.length!==1?'s':''}</span>
+        </div>
+        {loading
+          ? <span style={{color:C.muted}}>A carregar…</span>
+          : chamados.length === 0
+            ? <div style={{color:C.muted,padding:'24px 0',textAlign:'center'}}>
+                <div style={{fontSize:'24px',marginBottom:'8px'}}>📋</div>
+                <div>Sem chamados registados este mês</div>
+              </div>
+            : chamados.map((c,i) => (
+              <div key={i} style={{padding:'12px 0',borderBottom:`1px solid ${C.border}`}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px'}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:600,fontSize:'13px',color:C.text,marginBottom:'4px'}}>
+                      🔧 {c.cliente} — Máq. {c.maquina}
+                    </div>
+                    {c.problema && (
+                      <div style={{color:C.text,fontSize:'12px',background:C.bg,padding:'6px 8px',borderRadius:'6px',marginTop:'4px'}}>
+                        {c.problema}
+                      </div>
+                    )}
+                  </div>
+                  <a href={c.url} target="_blank" rel="noreferrer" style={{...S.link,marginTop:0,flexShrink:0}}>
+                    Ver ↗
+                  </a>
                 </div>
               </div>
-            </div>
-          ))
+            ))
         }
       </div>
-
-      {resolvidos.length > 0 && (
-        <div style={S.card}>
-          <div style={{...S.cardTitle,color:C.muted}}>✅ Resolvidos ({resolvidos.length})</div>
-          {resolvidos.map((c,i) => (
-            <div key={i} style={{padding:'6px 0',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-              <div>
-                <div style={{fontSize:'13px',color:C.muted}}>{c.cliente} · {c.data}</div>
-                <div style={{fontSize:'12px',color:C.muted}}>{c.titulo}</div>
-              </div>
-              <a href={c.url} target="_blank" rel="noreferrer" style={S.link}>↗</a>
-            </div>
-          ))}
+      <div style={{...S.card,background:'transparent',border:`1px dashed ${C.border}`,textAlign:'center',padding:'12px'}}>
+        <div style={{color:C.muted,fontSize:'12px'}}>
+          Histórico completo e detalhes disponíveis no Notion
         </div>
-      )}
+        <a href="https://app.notion.com/p/38793fb1601f81c4b22adee0f464d232" target="_blank" rel="noreferrer" style={S.link}>
+          Abrir Assistência Técnica no Notion ↗
+        </a>
+      </div>
     </div>
   )
 }
 
+// ── POPUP CONFIRMAÇÃO ────────────────────────────────────────
+function ConfirmPopup({mensagem, onConfirm, onCancel}) {
+  return (
+    <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'#000000aa',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
+      <div style={{background:C.card,border:`1px solid ${C.danger}44`,borderRadius:'12px',padding:'24px',maxWidth:'320px',width:'100%'}}>
+        <div style={{fontSize:'24px',textAlign:'center',marginBottom:'12px'}}>⚠️</div>
+        <div style={{fontWeight:600,fontSize:'15px',textAlign:'center',marginBottom:'8px',color:C.text}}>Confirmar limpeza</div>
+        <div style={{color:C.muted,fontSize:'13px',textAlign:'center',marginBottom:'20px'}}>{mensagem}</div>
+        <div style={{display:'flex',gap:'10px'}}>
+          <button onClick={onCancel} style={{...S.btnSm,flex:1,padding:'10px',fontSize:'13px'}}>Cancelar</button>
+          <button onClick={onConfirm} style={{...S.btnDanger,flex:1,padding:'10px',fontSize:'13px',fontWeight:600}}>Sim, apagar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── CARD PDV BA VIDROS ────────────────────────────────────────
+function PDVCard({id, label, pageId, itens, onSave}) {
+  const [qtd, setQtd] = useState('')
+  const [produto, setProduto] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
+
+  function amanha() {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    return d.toLocaleDateString('pt-PT', {day:'2-digit',month:'2-digit',year:'numeric'})
+  }
+
+  const adicionar = async () => {
+    if (!qtd.trim() || !produto.trim()) return
+    const novoItem = `${qtd.trim()} ${produto.trim()}`
+    const novosItens = [...itens, novoItem]
+    setSaving(true)
+    await onSave(id, novosItens)
+    setSaving(false)
+    setQtd(''); setProduto('')
+  }
+
+  const limpar = async () => {
+    setSaving(true)
+    await onSave(id, [])
+    setSaving(false)
+    setConfirmClear(false)
+  }
+
+  return (
+    <>
+      {confirmClear && (
+        <ConfirmPopup
+          mensagem={`Apagar toda a lista de reposição do ${label}?`}
+          onConfirm={limpar}
+          onCancel={() => setConfirmClear(false)}
+        />
+      )}
+      <div style={S.card}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
+          <div style={S.cardTitle}>📦 {label}</div>
+          {itens.length > 0 && (
+            <button style={S.btnDanger} onClick={() => setConfirmClear(true)} disabled={saving}>🗑 Limpar</button>
+          )}
+        </div>
+
+        {/* Lista de produtos — leitura */}
+        {itens.length > 0 ? (
+          <div style={{marginBottom:'16px'}}>
+            <div style={{color:C.muted,fontSize:'11px',fontWeight:600,marginBottom:'8px',textTransform:'uppercase',letterSpacing:'0.5px'}}>
+              📋 Para amanhã, {amanha()}
+            </div>
+            <div style={{background:C.bg,borderRadius:'8px',padding:'12px',border:`1px solid ${C.border}`}}>
+              {itens.map((item, i) => (
+                <div key={i} style={{display:'flex',alignItems:'center',gap:'8px',padding:'6px 0',borderBottom: i < itens.length-1 ? `1px solid ${C.border}` : 'none'}}>
+                  <div style={{width:'6px',height:'6px',borderRadius:'50%',background:C.accent,flexShrink:0}}/>
+                  <div style={{color:C.text,fontSize:'14px'}}>{item}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'16px 0',marginBottom:'12px'}}>
+            Sem produtos na lista
+          </div>
+        )}
+
+        {/* Adicionar produto */}
+        <div style={{borderTop:`1px solid ${C.border}`,paddingTop:'12px'}}>
+          <div style={{color:C.muted,fontSize:'11px',fontWeight:600,marginBottom:'8px',textTransform:'uppercase',letterSpacing:'0.5px'}}>Adicionar produto</div>
+          <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+            <input
+              type="number"
+              min="1"
+              value={qtd}
+              onChange={e => setQtd(e.target.value)}
+              placeholder="Qtd"
+              style={{...S.input,width:'70px',flexShrink:0}}
+              onKeyDown={e => e.key==='Enter' && adicionar()}
+            />
+            <input
+              type="text"
+              value={produto}
+              onChange={e => setProduto(e.target.value)}
+              placeholder="Nome do produto"
+              style={{...S.input,flex:1,minWidth:'140px'}}
+              onKeyDown={e => e.key==='Enter' && adicionar()}
+            />
+            <button style={{...S.btn,flexShrink:0}} onClick={adicionar} disabled={saving||!qtd||!produto}>
+              {saving ? '…' : '+ Adicionar'}
+            </button>
+          </div>
+        </div>
+
+        <a href={`https://notion.so/${pageId}`} target="_blank" rel="noreferrer" style={S.link}>
+          Abrir no Notion ↗
+        </a>
+      </div>
+    </>
+  )
+}
+
 // ── ABA BA VIDROS REFEITÓRIO ──────────────────────────────────
-function TabBAVidros({pdvYoung,pdv1050,onSave}) {
-  const [youngText,setYoungText] = useState(pdvYoung||'')
-  const [text1050,setText1050] = useState(pdv1050||'')
-  const [saving,setSaving] = useState(null)
-  const [saved,setSaved] = useState(null)
+function TabBAVidros({pdvYoung, pdv1050, onSave}) {
+  // Converter texto do Notion em array de itens
+  function parseItens(texto) {
+    if (!texto) return []
+    return texto.split('\n').map(l => l.replace(/^[•·\-]\s*/, '').trim()).filter(Boolean)
+  }
 
-  useEffect(()=>{setYoungText(pdvYoung||'')},[pdvYoung])
-  useEffect(()=>{setText1050(pdv1050||'')},[pdv1050])
+  const itensYoung = parseItens(pdvYoung)
+  const itens1050 = parseItens(pdv1050)
 
-  const save = async (pdv,text) => {
-    setSaving(pdv)
-    await onSave(pdv,text)
-    setSaving(null); setSaved(pdv)
-    setTimeout(()=>setSaved(null),2000)
+  const handleSave = async (pdv, itens) => {
+    const texto = itens.map(i => `• ${i}`).join('\n')
+    await onSave(pdv, texto)
   }
 
   return (
     <div>
-      {[
-        {id:'young',label:'PDV 806477 — Refeitório Young',text:youngText,set:setYoungText,pageId:PAGE_IDS.pdv806477},
-        {id:'1050',label:'PDV 807542 — Refeitório 1050',text:text1050,set:setText1050,pageId:PAGE_IDS.pdv807542},
-      ].map(p => (
-        <div key={p.id} style={S.card}>
-          <div style={S.cardTitle}>📦 {p.label}</div>
-          <label style={{color:C.muted,fontSize:'12px',display:'block',marginBottom:'4px'}}>Reposição pendente</label>
-          <textarea
-            value={p.text}
-            onChange={e=>p.set(e.target.value)}
-            rows={5}
-            style={{...S.input,resize:'vertical',fontFamily:'inherit'}}
-            placeholder="Ex: 6 água com gás&#10;15 Sumol laranja"
-          />
-          <div style={{display:'flex',gap:'8px',marginTop:'10px',flexWrap:'wrap'}}>
-            <button style={S.btn} onClick={()=>save(p.id,p.text)} disabled={saving===p.id}>
-              {saving===p.id?'A guardar…':saved===p.id?'✅ Guardado!':'💾 Guardar no Notion'}
-            </button>
-            <button style={S.btnDanger} onClick={()=>save(p.id,'')} disabled={saving===p.id}>🗑 Limpar</button>
-          </div>
-          <a href={`https://notion.so/${p.pageId}`} target="_blank" rel="noreferrer" style={S.link}>Abrir no Notion ↗</a>
-        </div>
-      ))}
+      <PDVCard id="young" label="PDV 806477 — Refeitório Young" pageId={PAGE_IDS.pdv806477} itens={itensYoung} onSave={handleSave}/>
+      <PDVCard id="1050" label="PDV 807542 — Refeitório 1050" pageId={PAGE_IDS.pdv807542} itens={itens1050} onSave={handleSave}/>
     </div>
   )
 }
@@ -554,9 +654,254 @@ function TabProdutos() {
   )
 }
 
+
+// ── TODAS AS MÁQUINAS DA ROTA (para comparação) ───────────────
+const TODAS_MAQUINAS = [
+  {pdv:'811865', cliente:'SAICA PACK PORTUGAL', modelo:'CONCERTO'},
+  {pdv:'811866', cliente:'SAICA PACK PORTUGAL', modelo:'CONCERTO'},
+  {pdv:'811867', cliente:'SAICA PACK PORTUGAL', modelo:'LEI 301 COMBI'},
+  {pdv:'811868', cliente:'SAICA PACK PORTUGAL', modelo:'VIVACE'},
+  {pdv:'811869', cliente:'SAICA PACK PORTUGAL', modelo:'VIVACE'},
+  {pdv:'814082', cliente:'SAICA PACK PORTUGAL', modelo:'FAS 900'},
+  {pdv:'809403', cliente:'FAMOLDE', modelo:'FAS 500 SLAVE P3'},
+  {pdv:'809404', cliente:'FAMOLDE', modelo:'FAS 500 SLAVE'},
+  {pdv:'806066', cliente:'BA VIDROS - ENTRADA', modelo:'FAS 1050'},
+  {pdv:'806071', cliente:'BA VIDROS - ENTRADA', modelo:'LEI 400'},
+  {pdv:'806476', cliente:'BA VIDROS - ENTRADA', modelo:'LEI 400'},
+  {pdv:'807016', cliente:'BA VIDROS - ENTRADA', modelo:'MELODIA'},
+  {pdv:'809449', cliente:'BA VIDROS - ENTRADA', modelo:'FAS YOUNG'},
+  {pdv:'810925', cliente:'BA VIDROS - ENTRADA', modelo:'CONCERTO'},
+  {pdv:'806068', cliente:'BA VIDROS - REFEITÓRIO P1', modelo:'LEI 400'},
+  {pdv:'806069', cliente:'BA VIDROS - REFEITÓRIO P1', modelo:'LEI 400'},
+  {pdv:'806477', cliente:'BA VIDROS - REFEITÓRIO P1', modelo:'FAS YOUNG'},
+  {pdv:'807542', cliente:'BA VIDROS - REFEITÓRIO P1', modelo:'FAS 1050'},
+  {pdv:'814999', cliente:'BA VIDROS - REFEITÓRIO P1', modelo:'FLEXSTACK'},
+  {pdv:'815228', cliente:'VIDROMOLDE', modelo:'LEI 301 COMBI'},
+  {pdv:'815229', cliente:'MEGO INDUSTRIA MOLDES', modelo:'LEI 301 COMBI'},
+  {pdv:'815691', cliente:'PES - PROJETOS EQUIPAMENTOS', modelo:'FAS 500 SLAVE'},
+  {pdv:'815504', cliente:'HRV - EQUIPAMENTOS DE PROCESSO S.A.', modelo:'LEI 400 SLAVE'},
+  {pdv:'815505', cliente:'HRV - EQUIPAMENTOS DE PROCESSO S.A.', modelo:'MELODIA'},
+  {pdv:'815506', cliente:'HRV - EQUIPAMENTOS DE PROCESSO S.A.', modelo:'FAS 500'},
+  {pdv:'807540', cliente:'MG2 - BA', modelo:'FAS YOUNG'},
+  {pdv:'815356', cliente:'MG2 - BA', modelo:'BRIO UP'},
+  {pdv:'806079', cliente:'IEFP-C.E. MARINHA GRANDE', modelo:'FAS 1050'},
+  {pdv:'809788', cliente:'IEFP-C.E. MARINHA GRANDE', modelo:'CONCERTO'},
+  {pdv:'810926', cliente:'PALBASE', modelo:'BRIO KEY'},
+  {pdv:'812421', cliente:'INNOVCOATING', modelo:'FAS MIA'},
+  {pdv:'812422', cliente:'INNOVCOATING', modelo:'FAS MIA'},
+  {pdv:'812420', cliente:'INNOVCOATING', modelo:'LEI 301 COMBI'},
+  {pdv:'813878', cliente:'IMV', modelo:'LEI 301 COMBI'},
+  {pdv:'807486', cliente:'IMV', modelo:'FAS 400'},
+  {pdv:'813266', cliente:'PROMOPLAS', modelo:'FAS MIA'},
+  {pdv:'813267', cliente:'PROMOPLAS', modelo:'FLESSY'},
+  {pdv:'811384', cliente:'BA VIDROS - ENGENHEIROS', modelo:'BRIO KEY'},
+  {pdv:'813414', cliente:'ARMAZÉM 3 BA VIDROS', modelo:'BRIO UP COMBI'},
+  {pdv:'810601', cliente:'IPL MARINHA GRANDE', modelo:'FAS 300 COMBI'},
+]
+
+// ── ABA INVENTÁRIO ────────────────────────────────────────────
+function TabInventario() {
+  const [estado, setEstado] = useState('idle') // idle | loading | resultado | erro
+  const [resultado, setResultado] = useState(null)
+  const [erro, setErro] = useState('')
+  const [nomeFile, setNomeFile] = useState('')
+
+  const processarPDF = async (file) => {
+    setEstado('loading')
+    setNomeFile(file.name)
+    setResultado(null)
+    setErro('')
+
+    try {
+      // Converter PDF para base64
+      const base64 = await new Promise((res, rej) => {
+        const reader = new FileReader()
+        reader.onload = () => res(reader.result.split(',')[1])
+        reader.onerror = () => rej(new Error('Erro ao ler ficheiro'))
+        reader.readAsDataURL(file)
+      })
+
+      const listaMaquinas = TODAS_MAQUINAS.map(m => `${m.pdv} (${m.cliente} — ${m.modelo})`).join('\n')
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 2000,
+          messages: [{
+            role: 'user',
+            content: [
+              {
+                type: 'document',
+                source: { type: 'base64', media_type: 'application/pdf', data: base64 }
+              },
+              {
+                type: 'text',
+                text: `És um assistente de gestão de rota de máquinas vending.
+
+Esta é a lista COMPLETA de máquinas da Rota 606:
+${listaMaquinas}
+
+Analisa o ficheiro PDF enviado (relatório de inventário/levantamento) e identifica quais máquinas JÁ foram feitas/registadas no PDF.
+
+Responde APENAS em JSON válido, sem texto antes ou depois, neste formato exato:
+{
+  "feitas": ["811865", "811866"],
+  "em_falta": ["809403", "806066"],
+  "total_feitas": 10,
+  "total_em_falta": 30,
+  "resumo": "Breve descrição do que encontraste no PDF"
+}`
+              }
+            ]
+          }]
+        })
+      })
+
+      const data = await response.json()
+      const texto = data.content?.[0]?.text || ''
+      const clean = texto.replace(/\`\`\`json|\`\`\`/g, '').trim()
+      const parsed = JSON.parse(clean)
+
+      // Enriquecer com dados das máquinas
+      const feitas = parsed.feitas.map(pdv => TODAS_MAQUINAS.find(m => m.pdv === pdv)).filter(Boolean)
+      const emFalta = parsed.em_falta.map(pdv => TODAS_MAQUINAS.find(m => m.pdv === pdv)).filter(Boolean)
+
+      setResultado({ ...parsed, feitasDetalhes: feitas, emFaltaDetalhes: emFalta })
+      setEstado('resultado')
+    } catch(err) {
+      setErro('Erro ao processar o ficheiro: ' + err.message)
+      setEstado('erro')
+    }
+  }
+
+  const onFileChange = (e) => {
+    const file = e.target.files?.[0]
+    if (file && file.type === 'application/pdf') processarPDF(file)
+    else if (file) setErro('Por favor envia um ficheiro PDF.')
+  }
+
+  // Agrupar por cliente
+  function agruparPorCliente(maquinas) {
+    return maquinas.reduce((acc, m) => {
+      if (!acc[m.cliente]) acc[m.cliente] = []
+      acc[m.cliente].push(m)
+      return acc
+    }, {})
+  }
+
+  return (
+    <div>
+      {/* Upload */}
+      <div style={S.card}>
+        <div style={S.cardTitle}>📋 Inventário e Levantamento — Rota 606</div>
+        <div style={{color:C.muted,fontSize:'13px',marginBottom:'16px'}}>
+          Quais máquinas ainda faltam fazer levantamento?
+        </div>
+
+        <label style={{
+          display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+          border:`2px dashed ${C.accent}44`, borderRadius:'10px', padding:'32px 16px',
+          cursor:'pointer', background:`${C.accent}08`, transition:'all 0.2s'
+        }}>
+          <input type="file" accept=".pdf" onChange={onFileChange} style={{display:'none'}}/>
+          <div style={{fontSize:'32px',marginBottom:'8px'}}>📄</div>
+          <div style={{fontWeight:600,color:C.accent,fontSize:'14px'}}>Clica para enviar o PDF</div>
+          <div style={{color:C.muted,fontSize:'12px',marginTop:'4px'}}>Ficheiro de inventário / levantamento</div>
+        </label>
+
+        {nomeFile && estado !== 'idle' && (
+          <div style={{color:C.muted,fontSize:'12px',marginTop:'8px',textAlign:'center'}}>📎 {nomeFile}</div>
+        )}
+      </div>
+
+      {/* Loading */}
+      {estado === 'loading' && (
+        <div style={{...S.card,textAlign:'center',padding:'32px'}}>
+          <div style={{fontSize:'32px',marginBottom:'12px'}}>🔍</div>
+          <div style={{fontWeight:600,color:C.text,marginBottom:'8px'}}>A analisar o ficheiro…</div>
+          <div style={{color:C.muted,fontSize:'13px'}}>A IA está a ler o PDF e a comparar com as máquinas da Rota 606</div>
+        </div>
+      )}
+
+      {/* Erro */}
+      {estado === 'erro' && (
+        <div style={{...S.card,border:`1px solid ${C.danger}44`,background:`${C.danger}11`}}>
+          <div style={{color:C.danger,fontWeight:600,marginBottom:'4px'}}>❌ Erro</div>
+          <div style={{color:C.muted,fontSize:'13px'}}>{erro}</div>
+        </div>
+      )}
+
+      {/* Resultado */}
+      {estado === 'resultado' && resultado && (
+        <>
+          {/* Resumo */}
+          <div style={{...S.card,borderColor:`${C.accent}44`}}>
+            <div style={S.cardTitle}>📊 Resumo da Análise</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'12px'}}>
+              <div style={{background:`${C.accent}15`,borderRadius:'8px',padding:'12px',textAlign:'center'}}>
+                <div style={{fontSize:'28px',fontWeight:700,color:C.accent}}>{resultado.total_feitas}</div>
+                <div style={{color:C.muted,fontSize:'12px'}}>✅ Feitas</div>
+              </div>
+              <div style={{background:`${C.danger}15`,borderRadius:'8px',padding:'12px',textAlign:'center'}}>
+                <div style={{fontSize:'28px',fontWeight:700,color:C.danger}}>{resultado.total_em_falta}</div>
+                <div style={{color:C.muted,fontSize:'12px'}}>⏳ Em falta</div>
+              </div>
+            </div>
+            {resultado.resumo && (
+              <div style={{color:C.muted,fontSize:'13px',background:C.bg,padding:'10px',borderRadius:'6px'}}>{resultado.resumo}</div>
+            )}
+          </div>
+
+          {/* Máquinas em falta */}
+          {resultado.emFaltaDetalhes?.length > 0 && (
+            <div style={S.card}>
+              <div style={{...S.cardTitle,color:C.danger}}>⏳ Máquinas em Falta ({resultado.emFaltaDetalhes.length})</div>
+              {Object.entries(agruparPorCliente(resultado.emFaltaDetalhes)).map(([cliente, maquinas]) => (
+                <div key={cliente} style={{marginBottom:'12px'}}>
+                  <div style={{color:C.accent,fontWeight:600,fontSize:'13px',marginBottom:'6px'}}>{cliente}</div>
+                  {maquinas.map((m,i) => (
+                    <div key={i} style={{display:'flex',gap:'8px',alignItems:'center',padding:'5px 0',borderBottom:`1px solid ${C.border}`}}>
+                      <span style={{...S.badge(C.danger)}}>{m.pdv}</span>
+                      <span style={{color:C.text,fontSize:'13px'}}>{m.modelo}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Máquinas feitas */}
+          {resultado.feitasDetalhes?.length > 0 && (
+            <div style={S.card}>
+              <div style={{...S.cardTitle,color:C.accent}}>✅ Já Feitas ({resultado.feitasDetalhes.length})</div>
+              {Object.entries(agruparPorCliente(resultado.feitasDetalhes)).map(([cliente, maquinas]) => (
+                <div key={cliente} style={{marginBottom:'10px'}}>
+                  <div style={{color:C.muted,fontWeight:600,fontSize:'12px',marginBottom:'4px'}}>{cliente}</div>
+                  <div>{maquinas.map((m,i) => (
+                    <span key={i} style={{...S.tag,background:`${C.accent}15`,color:C.accent,margin:'2px'}}>{m.pdv} {m.modelo}</span>
+                  ))}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Novo ficheiro */}
+          <div style={{textAlign:'center',marginTop:'8px'}}>
+            <button style={S.btnSm} onClick={() => { setEstado('idle'); setResultado(null); setNomeFile('') }}>
+              📄 Enviar outro ficheiro
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ── APP PRINCIPAL ─────────────────────────────────────────────
-const TABS = ['🏠','🔧','📦','🥐','📊','🗺️']
-const TAB_LABELS = ['Início','Chamados','BA Vidros','Frescos','Produtos','Rota']
+const TABS = ['🏠','📋','📦','🥐','🛒','🗺️','📋','📊','🚨']
+const TAB_LABELS = ['Início','A.T.','BA Vidros','Config. Frescos','Frescos','Rota','Inventário','Gestão Rota','Piquete']
 
 export default function App() {
   const [tab,setTab] = useState(0)
@@ -575,19 +920,23 @@ export default function App() {
   }
 
   const fetchChamados = async () => {
-    const data = await nPost(`databases/${PAGE_IDS.chamadosDB}/query`,{
-      filter:{property:'Status',select:{does_not_equal:''}},
-      sorts:[{property:'Data do Chamado',direction:'descending'}]
+    const { inicio, fim } = getMesRange()
+    const data = await nPost(`databases/${PAGE_IDS.chamadosDB}/query`, {
+      filter: {
+        and: [
+          { property: 'Data do Chamado', date: { on_or_after: inicio } },
+          { property: 'Data do Chamado', date: { on_or_before: fim } },
+        ]
+      },
+      sorts: [{ property: 'Data do Chamado', direction: 'descending' }]
     })
-    if(!data.results) return []
+    if (!data.results) return []
     return data.results.map(r => ({
       pageId: r.id,
-      titulo: r.properties?.Chamado?.title?.[0]?.plain_text || 'Sem título',
       cliente: r.properties?.Cliente?.rich_text?.[0]?.plain_text || '–',
       maquina: r.properties?.['Máquina PDV']?.rich_text?.[0]?.plain_text || '–',
       problema: r.properties?.Problema?.rich_text?.[0]?.plain_text || '',
       data: r.properties?.['Data do Chamado']?.date?.start || '–',
-      status: r.properties?.Status?.select?.name || '🔴 Aguardando Assistência',
       url: `https://notion.so/${r.id.replace(/-/g,'')}`,
     }))
   }
@@ -628,12 +977,6 @@ export default function App() {
     else setPdv1050(text)
   }
 
-  const updateStatus = async (pageId,status) => {
-    await nPatch(`pages/${pageId}`,{
-      properties:{Status:{select:{name:status}}}
-    })
-    setChamados(prev=>prev.map(c=>c.pageId===pageId?{...c,status}:c))
-  }
 
   // Se estiver a ver detalhe de fresco
   if(frescoAtivo) {
@@ -674,12 +1017,559 @@ export default function App() {
 
       <main style={S.main}>
         {tab===0 && <TabInicio chamados={chamados} loading={loading} onVerFresco={setFrescoAtivo}/>}
-        {tab===1 && <TabChamados chamados={chamados} loading={loading} onStatusChange={updateStatus}/>}
+        {tab===1 && <TabChamados chamados={chamados} loading={loading}/>}
         {tab===2 && <TabBAVidros pdvYoung={pdvYoung} pdv1050={pdv1050} onSave={savePdv}/>}
         {tab===3 && <TabFrescos onVerFresco={setFrescoAtivo}/>}
         {tab===4 && <TabProdutos/>}
         {tab===5 && <TabRota onVerFresco={setFrescoAtivo}/>}
+        {tab===6 && <TabInventario/>}
+        {tab===7 && <TabGestaoRota/>}
+        {tab===8 && <TabPiquete/>}
       </main>
+    </div>
+  )
+}
+
+// ── ABA GESTÃO DA ROTA ────────────────────────────────────────
+function TabGestaoRota() {
+  const [estado, setEstado] = useState(() => {
+    try { return localStorage.getItem('gestao_estado') || 'idle' } catch { return 'idle' }
+  })
+  const [analise, setAnalise] = useState(() => {
+    try { const d = localStorage.getItem('gestao_analise'); return d ? JSON.parse(d) : null } catch { return null }
+  })
+  const [erro, setErro] = useState('')
+  const [nomeFile, setNomeFile] = useState(() => {
+    try { return localStorage.getItem('gestao_ficheiro') || '' } catch { return '' }
+  })
+  const [confirmApagar, setConfirmApagar] = useState(false)
+
+  const apagarDados = () => {
+    localStorage.removeItem('gestao_estado')
+    localStorage.removeItem('gestao_analise')
+    localStorage.removeItem('gestao_ficheiro')
+    setEstado('idle'); setAnalise(null); setNomeFile(''); setConfirmApagar(false)
+  }
+
+  const processarPDF = async (file) => {
+    setEstado('loading')
+    setNomeFile(file.name)
+    setAnalise(null)
+    setErro('')
+
+    try {
+      const base64 = await new Promise((res, rej) => {
+        const reader = new FileReader()
+        reader.onload = () => res(reader.result.split(',')[1])
+        reader.onerror = () => rej(new Error('Erro ao ler ficheiro'))
+        reader.readAsDataURL(file)
+      })
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 4000,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+              {
+                type: 'text',
+                text: `És um analista de gestão de rota de máquinas vending especializado. Analisa este ficheiro PDF da Rota 606.
+
+Extrai TODOS os dados de abastecimento, devoluções e danificados da Rota 606.
+
+Responde APENAS em JSON válido sem texto antes ou depois:
+{
+  "periodo": "período do relatório ex: 01/06 a 07/06/2026",
+  "resumo_geral": {
+    "total_abastecido": 0,
+    "total_devolvido": 0,
+    "total_danificado": 0,
+    "taxa_quebra_percent": 0.0,
+    "valor_quebra_estimado": "€0"
+  },
+  "top_produtos": [
+    {"nome": "Produto X", "vendas": 0, "devolucoes": 0, "danificados": 0, "quebra_percent": 0.0, "status": "AUMENTAR|OK|REDUZIR|REVER"}
+  ],
+  "por_cliente": [
+    {"cliente": "Nome", "maquina": "PDV", "abastecido": 0, "devolvido": 0, "danificado": 0, "quebra_percent": 0.0}
+  ],
+  "categorias": [
+    {"categoria": "Doces", "total": 0, "percentagem": 0.0},
+    {"categoria": "Salgados", "total": 0, "percentagem": 0.0},
+    {"categoria": "Bebidas", "total": 0, "percentagem": 0.0}
+  ],
+  "sugestoes_frescos": [
+    {"produto": "Nome", "acao": "MANTER|AUMENTAR|REDUZIR|SUBSTITUIR", "motivo": "Explicação curta"}
+  ],
+  "alertas": ["Alerta 1", "Alerta 2"],
+  "conclusao": "Análise resumida em 2-3 frases simples"
+}`
+              }
+            ]
+          }]
+        })
+      })
+
+      const data = await response.json()
+      const texto = data.content?.[0]?.text || ''
+      const clean = texto.replace(/```json|```/g, '').trim()
+      const parsed = JSON.parse(clean)
+      setAnalise(parsed)
+      setEstado('resultado')
+      try {
+        localStorage.setItem('gestao_analise', JSON.stringify(parsed))
+        localStorage.setItem('gestao_estado', 'resultado')
+        localStorage.setItem('gestao_ficheiro', file.name)
+      } catch {}
+    } catch(err) {
+      setErro('Erro ao processar: ' + err.message)
+      setEstado('erro')
+    }
+  }
+
+  const onFileChange = (e) => {
+    const file = e.target.files?.[0]
+    if (file?.type === 'application/pdf') processarPDF(file)
+    else if (file) setErro('Por favor envia um ficheiro PDF.')
+  }
+
+  // ── Mini gráfico de barras SVG
+  function GraficoBarras({dados, titulo}) {
+    if (!dados?.length) return null
+    const max = Math.max(...dados.map(d => d.valor))
+    const cores = ['#10D9A0','#3FB950','#58A6FF','#E3A340','#F85149','#A371F7','#79C0FF','#56D364']
+    return (
+      <div style={{marginBottom:'16px'}}>
+        <div style={{fontWeight:600,fontSize:'13px',color:'#E6EDF3',marginBottom:'10px'}}>{titulo}</div>
+        {dados.slice(0,8).map((d,i) => (
+          <div key={i} style={{marginBottom:'8px'}}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:'3px'}}>
+              <span style={{fontSize:'11px',color:'#8B949E',maxWidth:'200px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{d.label}</span>
+              <span style={{fontSize:'11px',color:'#E6EDF3',fontWeight:600}}>{d.valor}{d.sufixo||''}</span>
+            </div>
+            <div style={{background:'#21262D',borderRadius:'4px',height:'8px',overflow:'hidden'}}>
+              <div style={{background:cores[i%cores.length],height:'100%',width:`${max>0?(d.valor/max*100):0}%`,transition:'width 0.4s'}}/>
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  // ── Gráfico pizza SVG
+  function GraficoPizza({dados, titulo}) {
+    if (!dados?.length) return null
+    const total = dados.reduce((a,d) => a + (d.percentagem||0), 0)
+    const cores = ['#10D9A0','#58A6FF','#E3A340','#F85149','#A371F7','#56D364']
+    let angulo = -90
+    const raio = 60, cx = 80, cy = 80
+    const segmentos = dados.map((d,i) => {
+      const graus = (d.percentagem / (total||1)) * 360
+      const rad1 = (angulo * Math.PI) / 180
+      const rad2 = ((angulo + graus) * Math.PI) / 180
+      const x1 = cx + raio * Math.cos(rad1)
+      const y1 = cy + raio * Math.sin(rad1)
+      const x2 = cx + raio * Math.cos(rad2)
+      const y2 = cy + raio * Math.sin(rad2)
+      const bigArc = graus > 180 ? 1 : 0
+      const path = `M ${cx} ${cy} L ${x1} ${y1} A ${raio} ${raio} 0 ${bigArc} 1 ${x2} ${y2} Z`
+      angulo += graus
+      return { path, cor: cores[i%cores.length], label: d.categoria||d.label, pct: d.percentagem }
+    })
+    return (
+      <div style={{marginBottom:'16px'}}>
+        <div style={{fontWeight:600,fontSize:'13px',color:'#E6EDF3',marginBottom:'10px'}}>{titulo}</div>
+        <div style={{display:'flex',alignItems:'center',gap:'16px',flexWrap:'wrap'}}>
+          <svg width="160" height="160" viewBox="0 0 160 160">
+            {segmentos.map((s,i) => <path key={i} d={s.path} fill={s.cor} stroke="#0D1117" strokeWidth="2"/>)}
+          </svg>
+          <div>
+            {segmentos.map((s,i) => (
+              <div key={i} style={{display:'flex',alignItems:'center',gap:'6px',marginBottom:'5px'}}>
+                <div style={{width:'10px',height:'10px',borderRadius:'2px',background:s.cor,flexShrink:0}}/>
+                <span style={{fontSize:'12px',color:'#8B949E'}}>{s.label}</span>
+                <span style={{fontSize:'12px',color:'#E6EDF3',fontWeight:600}}>{s.pct?.toFixed(1)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const statusCor = {'AUMENTAR':'#10D9A0','OK':'#3FB950','REDUZIR':'#E3A340','REVER':'#F85149','MANTER':'#58A6FF','SUBSTITUIR':'#F85149'}
+
+  return (
+    <div>
+      {/* Upload */}
+      <div style={{background:'#161B22',border:'1px solid #21262D',borderRadius:'10px',padding:'16px',marginBottom:'12px'}}>
+        <div style={{fontWeight:600,fontSize:'14px',marginBottom:'8px',color:'#E6EDF3',display:'flex',alignItems:'center',gap:'8px'}}>📊 Gestão da Rota 606</div>
+        <div style={{color:'#8B949E',fontSize:'13px',marginBottom:'16px'}}>Envia o relatório semanal em PDF para análise completa de vendas, devoluções e quebras.</div>
+        <label style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',border:'2px dashed #10D9A044',borderRadius:'10px',padding:'28px 16px',cursor:'pointer',background:'#10D9A008'}}>
+          <input type="file" accept=".pdf" onChange={onFileChange} style={{display:'none'}}/>
+          <div style={{fontSize:'28px',marginBottom:'6px'}}>📄</div>
+          <div style={{fontWeight:600,color:'#10D9A0',fontSize:'13px'}}>Clica para enviar o PDF</div>
+          {nomeFile && <div style={{color:'#8B949E',fontSize:'11px',marginTop:'4px'}}>📎 {nomeFile}</div>}
+        </label>
+      </div>
+
+      {/* Loading */}
+      {estado === 'loading' && (
+        <div style={{background:'#161B22',border:'1px solid #21262D',borderRadius:'10px',padding:'32px',textAlign:'center',marginBottom:'12px'}}>
+          <div style={{fontSize:'28px',marginBottom:'10px'}}>🔍</div>
+          <div style={{fontWeight:600,color:'#E6EDF3',marginBottom:'6px'}}>A analisar o relatório…</div>
+          <div style={{color:'#8B949E',fontSize:'13px'}}>A IA está a ler e a preparar a análise completa da Rota 606</div>
+        </div>
+      )}
+
+      {/* Erro */}
+      {estado === 'erro' && (
+        <div style={{background:'#F8514911',border:'1px solid #F8514944',borderRadius:'10px',padding:'16px',marginBottom:'12px'}}>
+          <div style={{color:'#F85149',fontWeight:600,marginBottom:'4px'}}>❌ Erro</div>
+          <div style={{color:'#8B949E',fontSize:'13px'}}>{erro}</div>
+        </div>
+      )}
+
+      {/* Resultado */}
+      {estado === 'resultado' && analise && (
+        <>
+          {/* Resumo geral */}
+          <div style={{background:'#161B22',border:'1px solid #10D9A044',borderRadius:'10px',padding:'16px',marginBottom:'12px'}}>
+            <div style={{fontWeight:600,fontSize:'14px',marginBottom:'12px',color:'#E6EDF3'}}>📅 {analise.periodo}</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'12px'}}>
+              {[
+                {label:'Abastecido',valor:analise.resumo_geral?.total_abastecido,cor:'#10D9A0'},
+                {label:'Devolvido',valor:analise.resumo_geral?.total_devolvido,cor:'#E3A340'},
+                {label:'Danificado',valor:analise.resumo_geral?.total_danificado,cor:'#F85149'},
+                {label:'Taxa quebra',valor:(analise.resumo_geral?.taxa_quebra_percent||0)+'%',cor:'#A371F7'},
+              ].map((item,i) => (
+                <div key={i} style={{background:'#0D1117',borderRadius:'8px',padding:'10px',textAlign:'center'}}>
+                  <div style={{fontSize:'20px',fontWeight:700,color:item.cor}}>{item.valor}</div>
+                  <div style={{color:'#8B949E',fontSize:'11px',marginTop:'2px'}}>{item.label}</div>
+                </div>
+              ))}
+            </div>
+            {analise.conclusao && (
+              <div style={{color:'#8B949E',fontSize:'13px',background:'#0D1117',padding:'10px',borderRadius:'6px',lineHeight:1.6}}>{analise.conclusao}</div>
+            )}
+          </div>
+
+          {/* Gráfico categorias pizza */}
+          {analise.categorias?.length > 0 && (
+            <div style={{background:'#161B22',border:'1px solid #21262D',borderRadius:'10px',padding:'16px',marginBottom:'12px'}}>
+              <GraficoPizza dados={analise.categorias} titulo="🥧 Distribuição por Categoria"/>
+            </div>
+          )}
+
+          {/* Gráfico top produtos barras */}
+          {analise.top_produtos?.length > 0 && (
+            <div style={{background:'#161B22',border:'1px solid #21262D',borderRadius:'10px',padding:'16px',marginBottom:'12px'}}>
+              <GraficoBarras
+                dados={analise.top_produtos.slice(0,8).map(p=>({label:p.nome,valor:p.vendas||0}))}
+                titulo="📦 Top Produtos — Vendas"
+              />
+              <GraficoBarras
+                dados={analise.top_produtos.filter(p=>p.quebra_percent>0).sort((a,b)=>b.quebra_percent-a.quebra_percent).slice(0,6).map(p=>({label:p.nome,valor:parseFloat(p.quebra_percent)||0,sufixo:'%'}))}
+                titulo="⚠️ Quebra por Produto (%)"
+              />
+              {/* Tabela de produtos */}
+              <div style={{fontWeight:600,fontSize:'13px',color:'#E6EDF3',marginBottom:'8px',marginTop:'8px'}}>📋 Análise por Produto</div>
+              <div style={{overflowX:'auto'}}>
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:'12px'}}>
+                  <thead>
+                    <tr>
+                      {['Produto','Vendas','Devol.','Danif.','Quebra%','Estado'].map(h=>(
+                        <th key={h} style={{textAlign:'left',padding:'6px 8px',background:'#0D1117',color:'#8B949E',fontSize:'11px',borderBottom:'1px solid #21262D'}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {analise.top_produtos.map((p,i)=>(
+                      <tr key={i}>
+                        <td style={{padding:'6px 8px',borderBottom:'1px solid #21262D',color:'#E6EDF3',maxWidth:'130px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.nome}</td>
+                        <td style={{padding:'6px 8px',borderBottom:'1px solid #21262D',color:'#10D9A0',fontWeight:600}}>{p.vendas}</td>
+                        <td style={{padding:'6px 8px',borderBottom:'1px solid #21262D',color:'#E3A340'}}>{p.devolucoes}</td>
+                        <td style={{padding:'6px 8px',borderBottom:'1px solid #21262D',color:'#F85149'}}>{p.danificados}</td>
+                        <td style={{padding:'6px 8px',borderBottom:'1px solid #21262D',color:'#8B949E'}}>{p.quebra_percent}%</td>
+                        <td style={{padding:'6px 8px',borderBottom:'1px solid #21262D'}}>
+                          <span style={{background:`${statusCor[p.status]||'#8B949E'}22`,color:statusCor[p.status]||'#8B949E',borderRadius:'4px',padding:'2px 6px',fontSize:'10px',fontWeight:600}}>{p.status}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Por cliente */}
+          {analise.por_cliente?.length > 0 && (
+            <div style={{background:'#161B22',border:'1px solid #21262D',borderRadius:'10px',padding:'16px',marginBottom:'12px'}}>
+              <div style={{fontWeight:600,fontSize:'13px',color:'#E6EDF3',marginBottom:'10px'}}>🏭 Análise por Cliente</div>
+              <GraficoBarras
+                dados={analise.por_cliente.map(c=>({label:`${c.cliente} (${c.maquina})`,valor:c.abastecido||0}))}
+                titulo="Abastecido por Máquina"
+              />
+            </div>
+          )}
+
+          {/* Sugestões frescos */}
+          {analise.sugestoes_frescos?.length > 0 && (
+            <div style={{background:'#161B22',border:'1px solid #10D9A044',borderRadius:'10px',padding:'16px',marginBottom:'12px'}}>
+              <div style={{fontWeight:600,fontSize:'13px',color:'#10D9A0',marginBottom:'10px'}}>💡 Sugestões — Frescos</div>
+              {analise.sugestoes_frescos.map((s,i)=>(
+                <div key={i} style={{padding:'8px 0',borderBottom:'1px solid #21262D',display:'flex',gap:'10px',alignItems:'flex-start'}}>
+                  <span style={{background:`${statusCor[s.acao]||'#8B949E'}22`,color:statusCor[s.acao]||'#8B949E',borderRadius:'4px',padding:'2px 8px',fontSize:'11px',fontWeight:600,flexShrink:0,marginTop:'1px'}}>{s.acao}</span>
+                  <div>
+                    <div style={{color:'#E6EDF3',fontSize:'13px',fontWeight:500}}>{s.produto}</div>
+                    <div style={{color:'#8B949E',fontSize:'12px',marginTop:'2px'}}>{s.motivo}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Alertas */}
+          {analise.alertas?.length > 0 && (
+            <div style={{background:'#E3A34011',border:'1px solid #E3A34044',borderRadius:'10px',padding:'16px',marginBottom:'12px'}}>
+              <div style={{fontWeight:600,fontSize:'13px',color:'#E3A340',marginBottom:'8px'}}>⚠️ Alertas</div>
+              {analise.alertas.map((a,i)=>(
+                <div key={i} style={{color:'#E6EDF3',fontSize:'13px',padding:'4px 0',display:'flex',gap:'8px',alignItems:'flex-start'}}>
+                  <span style={{color:'#E3A340',flexShrink:0}}>•</span>{a}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Botão apagar dados */}
+          <div style={{marginTop:'24px',paddingTop:'16px',borderTop:'1px solid #21262D'}}>
+            <button onClick={() => setConfirmApagar(true)} style={{width:'100%',background:'#F8514911',border:'1px solid #F85149',color:'#F85149',borderRadius:'8px',padding:'14px',fontWeight:700,cursor:'pointer',fontSize:'14px',letterSpacing:'0.5px'}}>
+              🗑️ APAGAR DADOS
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Popup confirmação apagar */}
+      {confirmApagar && (
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'#000000bb',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
+          <div style={{background:'#161B22',border:'1px solid #F8514944',borderRadius:'12px',padding:'24px',maxWidth:'320px',width:'100%'}}>
+            <div style={{fontSize:'28px',textAlign:'center',marginBottom:'10px'}}>🗑️</div>
+            <div style={{fontWeight:700,textAlign:'center',color:'#E6EDF3',marginBottom:'8px',fontSize:'15px'}}>Apagar todos os dados?</div>
+            <div style={{color:'#8B949E',fontSize:'13px',textAlign:'center',marginBottom:'20px',lineHeight:1.6}}>A análise do relatório será eliminada. A página ficará pronta para receber um novo ficheiro.</div>
+            <div style={{display:'flex',gap:'10px'}}>
+              <button onClick={() => setConfirmApagar(false)} style={{flex:1,background:'transparent',border:'1px solid #30363D',color:'#8B949E',borderRadius:'6px',padding:'12px',cursor:'pointer',fontSize:'13px'}}>Cancelar</button>
+              <button onClick={apagarDados} style={{flex:1,background:'#F85149',color:'#fff',border:'none',borderRadius:'6px',padding:'12px',fontWeight:700,cursor:'pointer',fontSize:'13px'}}>Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── ABA PIQUETE ───────────────────────────────────────────────
+function TabPiquete() {
+  const [rota, setRota] = useState(() => {
+    try { return localStorage.getItem('piquete_rota') || '' } catch { return '' }
+  })
+  const [editandoRota, setEditandoRota] = useState(false)
+  const [rotaTemp, setRotaTemp] = useState('')
+  const [confirmExcluir, setConfirmExcluir] = useState(false)
+
+  const [data, setData] = useState('')
+  const [horas, setHoras] = useState('')
+  const [registos, setRegistos] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('piquete_horas') || '[]') } catch { return [] }
+  })
+  const [confirmExcluirHora, setConfirmExcluirHora] = useState(null)
+  const [copiado, setCopiado] = useState(null)
+
+  const guardarRota = () => {
+    localStorage.setItem('piquete_rota', rotaTemp)
+    setRota(rotaTemp)
+    setEditandoRota(false)
+  }
+
+  const excluirRota = () => {
+    localStorage.removeItem('piquete_rota')
+    setRota('')
+    setConfirmExcluir(false)
+  }
+
+  const adicionarHora = () => {
+    if (!data || !horas) return
+    const novo = { id: Date.now(), data, horas }
+    const novos = [...registos, novo]
+    setRegistos(novos)
+    localStorage.setItem('piquete_horas', JSON.stringify(novos))
+    setData(''); setHoras('')
+  }
+
+  const excluirHora = (id) => {
+    const novos = registos.filter(r => r.id !== id)
+    setRegistos(novos)
+    localStorage.setItem('piquete_horas', JSON.stringify(novos))
+    setConfirmExcluirHora(null)
+  }
+
+  const textoWhatsApp = (r) => {
+    const diaSemana = new Date(r.data + 'T12:00:00').toLocaleDateString('pt-PT', { weekday: 'long' })
+    return `Horas trabalhadas no piquete de ${diaSemana}, Rota 606.\nData: ${r.data.split('-').reverse().join('/')}\nHoras: ${r.horas}`
+  }
+
+  const copiarTexto = (r) => {
+    navigator.clipboard.writeText(textoWhatsApp(r))
+    setCopiado(r.id)
+    setTimeout(() => setCopiado(null), 2000)
+  }
+
+  const partilharWhatsApp = (r) => {
+    const texto = encodeURIComponent(textoWhatsApp(r))
+    window.open(`https://wa.me/?text=${texto}`, '_blank')
+  }
+
+  const S2 = {
+    section: { background:'#161B22', border:'1px solid #21262D', borderRadius:'10px', padding:'16px', marginBottom:'12px' },
+    title: { fontWeight:600, fontSize:'14px', marginBottom:'12px', color:'#E6EDF3', display:'flex', alignItems:'center', gap:'8px' },
+    rotaBox: { background:'#0D1117', borderRadius:'8px', padding:'14px', color:'#E6EDF3', fontSize:'13px', lineHeight:1.7, whiteSpace:'pre-wrap', minHeight:'60px', border:'1px solid #21262D' },
+    row: { display:'flex', gap:'8px', flexWrap:'wrap', alignItems:'center' },
+    input: { background:'#0D1117', border:'1px solid #30363D', borderRadius:'6px', color:'#E6EDF3', padding:'8px 12px', fontSize:'13px', outline:'none' },
+    btn: { background:'#10D9A0', color:'#0D1117', border:'none', borderRadius:'6px', padding:'8px 14px', fontWeight:600, cursor:'pointer', fontSize:'13px' },
+    btnSm: { background:'transparent', border:'1px solid #30363D', color:'#8B949E', borderRadius:'6px', padding:'6px 12px', cursor:'pointer', fontSize:'12px' },
+    btnDanger: { background:'transparent', color:'#F85149', border:'1px solid #F8514944', borderRadius:'6px', padding:'6px 12px', cursor:'pointer', fontSize:'12px' },
+    btnWA: { background:'#25D366', color:'#fff', border:'none', borderRadius:'6px', padding:'6px 12px', cursor:'pointer', fontSize:'12px', fontWeight:600 },
+    tag: { background:'#21262D', borderRadius:'4px', padding:'2px 8px', fontSize:'11px', color:'#8B949E', display:'inline-block' },
+  }
+
+  return (
+    <div>
+      {/* Popup excluir rota */}
+      {confirmExcluir && (
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'#000000aa',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
+          <div style={{background:'#161B22',border:'1px solid #F8514944',borderRadius:'12px',padding:'24px',maxWidth:'300px',width:'100%'}}>
+            <div style={{fontSize:'24px',textAlign:'center',marginBottom:'10px'}}>⚠️</div>
+            <div style={{fontWeight:600,textAlign:'center',color:'#E6EDF3',marginBottom:'6px'}}>Excluir anotação?</div>
+            <div style={{color:'#8B949E',fontSize:'13px',textAlign:'center',marginBottom:'18px'}}>A rota do piquete será apagada permanentemente.</div>
+            <div style={{display:'flex',gap:'8px'}}>
+              <button onClick={() => setConfirmExcluir(false)} style={{...S2.btnSm,flex:1,padding:'10px'}}>Cancelar</button>
+              <button onClick={excluirRota} style={{...S2.btnDanger,flex:1,padding:'10px',fontWeight:600}}>Excluir</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Popup excluir hora */}
+      {confirmExcluirHora && (
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'#000000aa',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
+          <div style={{background:'#161B22',border:'1px solid #F8514944',borderRadius:'12px',padding:'24px',maxWidth:'300px',width:'100%'}}>
+            <div style={{fontSize:'24px',textAlign:'center',marginBottom:'10px'}}>⚠️</div>
+            <div style={{fontWeight:600,textAlign:'center',color:'#E6EDF3',marginBottom:'6px'}}>Excluir registo?</div>
+            <div style={{color:'#8B949E',fontSize:'13px',textAlign:'center',marginBottom:'18px'}}>O registo de horas será apagado.</div>
+            <div style={{display:'flex',gap:'8px'}}>
+              <button onClick={() => setConfirmExcluirHora(null)} style={{...S2.btnSm,flex:1,padding:'10px'}}>Cancelar</button>
+              <button onClick={() => excluirHora(confirmExcluirHora)} style={{...S2.btnDanger,flex:1,padding:'10px',fontWeight:600}}>Excluir</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rota do Piquete */}
+      <div style={S2.section}>
+        <div style={S2.title}>🚨 Rota do Piquete</div>
+
+        {editandoRota ? (
+          <>
+            <textarea
+              value={rotaTemp}
+              onChange={e => setRotaTemp(e.target.value)}
+              rows={6}
+              style={{...S2.input, width:'100%', resize:'vertical', fontFamily:'inherit', boxSizing:'border-box', marginBottom:'10px'}}
+              placeholder="Escreve aqui a rota do piquete..."
+            />
+            <div style={S2.row}>
+              <button style={S2.btn} onClick={guardarRota}>💾 Guardar</button>
+              <button style={S2.btnSm} onClick={() => setEditandoRota(false)}>Cancelar</button>
+            </div>
+          </>
+        ) : (
+          <>
+            {rota ? (
+              <div style={S2.rotaBox}>{rota}</div>
+            ) : (
+              <div style={{color:'#8B949E',fontSize:'13px',textAlign:'center',padding:'24px 0'}}>
+                Sem rota definida — clica em editar para adicionar
+              </div>
+            )}
+            <div style={{...S2.row, marginTop:'12px'}}>
+              <button style={S2.btnSm} onClick={() => { setRotaTemp(rota); setEditandoRota(true) }}>✏️ Editar</button>
+              {rota && <button style={S2.btnDanger} onClick={() => setConfirmExcluir(true)}>🗑 Excluir</button>}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Horas Trabalhadas */}
+      <div style={S2.section}>
+        <div style={S2.title}>⏱️ Horas Trabalhadas</div>
+
+        {/* Adicionar registo */}
+        <div style={{background:'#0D1117',borderRadius:'8px',padding:'12px',marginBottom:'14px',border:'1px solid #21262D'}}>
+          <div style={{color:'#8B949E',fontSize:'11px',fontWeight:600,marginBottom:'8px',textTransform:'uppercase',letterSpacing:'0.5px'}}>Novo registo</div>
+          <div style={{...S2.row, marginBottom:'8px'}}>
+            <input type="date" value={data} onChange={e => setData(e.target.value)}
+              style={{...S2.input, flex:1, minWidth:'130px'}}/>
+            <input type="text" value={horas} onChange={e => setHoras(e.target.value)}
+              placeholder="Ex: 8h30" style={{...S2.input, width:'90px'}}
+              onKeyDown={e => e.key === 'Enter' && adicionarHora()}/>
+            <button style={S2.btn} onClick={adicionarHora} disabled={!data || !horas}>+ Adicionar</button>
+          </div>
+        </div>
+
+        {/* Lista de registos */}
+        {registos.length === 0 ? (
+          <div style={{color:'#8B949E',fontSize:'13px',textAlign:'center',padding:'16px 0'}}>Sem registos de horas</div>
+        ) : (
+          registos.map((r,i) => {
+            const diaSemana = new Date(r.data + 'T12:00:00').toLocaleDateString('pt-PT', { weekday: 'long' })
+            const dataFmt = r.data.split('-').reverse().join('/')
+            return (
+              <div key={r.id} style={{background:'#0D1117',borderRadius:'8px',padding:'12px',marginBottom:'8px',border:'1px solid #21262D'}}>
+                {/* Cabeçalho */}
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+                  <div>
+                    <span style={{fontWeight:600,color:'#E6EDF3',fontSize:'13px',textTransform:'capitalize'}}>{diaSemana}</span>
+                    <span style={{...S2.tag,marginLeft:'8px'}}>{dataFmt}</span>
+                    <span style={{...S2.tag,marginLeft:'4px',color:'#10D9A0',background:'#10D9A022'}}>{r.horas}</span>
+                  </div>
+                  <button style={S2.btnDanger} onClick={() => setConfirmExcluirHora(r.id)}>🗑</button>
+                </div>
+
+                {/* Texto de partilha */}
+                <div style={{background:'#161B22',borderRadius:'6px',padding:'10px',fontSize:'12px',color:'#8B949E',lineHeight:1.7,marginBottom:'10px',fontFamily:'monospace'}}>
+                  Horas trabalhadas no piquete de {diaSemana}, Rota 606.<br/>
+                  Data: {dataFmt}<br/>
+                  Horas: {r.horas}
+                </div>
+
+                {/* Botões */}
+                <div style={S2.row}>
+                  <button style={S2.btnSm} onClick={() => copiarTexto(r)}>
+                    {copiado === r.id ? '✅ Copiado!' : '📋 Copiar'}
+                  </button>
+                  <button style={S2.btnWA} onClick={() => partilharWhatsApp(r)}>
+                    📲 Partilhar no WhatsApp
+                  </button>
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
     </div>
   )
 }
