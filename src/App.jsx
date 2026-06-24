@@ -1269,18 +1269,34 @@ function Dashboard() {
     return ()=>clearInterval(t)
   },[sync])
 
-  const savePdv = async (pdv,text) => {
-    const pageId = pdv==='young'?PAGE_IDS.pdv806477:PAGE_IDS.pdv807542
-    const existing = await nGet(`blocks/${pageId}/children`,{page_size:'50'})
-    if(existing.results) for(const b of existing.results) await nDelete(`blocks/${b.id}`)
-    if(text.trim()) {
-      const children = text.split('\n').filter(Boolean).map(l=>({
-        object:'block',type:'paragraph',
-        paragraph:{rich_text:[{type:'text',text:{content:l}}]}
+  const savePdv = async (pdv, text) => {
+    const pageId = pdv === 'young' ? PAGE_IDS.pdv806477 : PAGE_IDS.pdv807542
+
+    // 1. Apagar blocos existentes (arquivo via PATCH)
+    try {
+      const existing = await nGet(`blocks/${pageId}/children`, { page_size: '50' })
+      if (existing.results && existing.results.length > 0) {
+        for (const b of existing.results) {
+          await nPatch(`blocks/${b.id}`, { archived: true })
+        }
+      }
+    } catch(e) { console.error('Erro ao apagar blocos:', e) }
+
+    // 2. Criar novos blocos (PATCH é o método correto na API Notion)
+    if (text && text.trim()) {
+      const linhas = text.split('\n').filter(Boolean)
+      const children = linhas.map(l => ({
+        object: 'block',
+        type: 'paragraph',
+        paragraph: { rich_text: [{ type: 'text', text: { content: l } }] }
       }))
-      await nPost(`blocks/${pageId}/children`,{children})
+      try {
+        await nPatch(`blocks/${pageId}/children`, { children })
+      } catch(e) { console.error('Erro ao guardar blocos:', e) }
     }
-    if(pdv==='young') setPdvYoung(text)
+
+    // 3. Atualizar estado local
+    if (pdv === 'young') setPdvYoung(text)
     else setPdv1050(text)
   }
 
