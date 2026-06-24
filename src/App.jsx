@@ -109,10 +109,10 @@ const FRESCOS = [
   {pdv:'809404', cliente:'Famolde P1', notionId:'', doces:'21,22,24,25,27', salgados:'41–47', tentacao:'48', gourmet:'—', instrucoes:'Espirais doces nos slots 21,22,24,25,27. Salgados nos slots 41-47. Tentação no slot 48.'},
   {pdv:'809449', cliente:'BA Vidros Entrada (FAS Young)', notionId:'', doces:'—', salgados:'41–46', tentacao:'—', gourmet:'—', instrucoes:'Apenas salgados nos slots 41-46. Sem frescos doces ou Tentação nesta máquina.'},
   {pdv:'806066', cliente:'BA Vidros Entrada (FAS 1050)', notionId:'', doces:'11,13,17,19,51–56', salgados:'40–49', tentacao:'15 (fixo: Hambúrguer)', gourmet:'—', instrucoes:'Doces nos slots 11,13,17,19 e 51-56. Salgados nos slots 40-49. Slot 15 FIXO: Hambúrguer Tentação (não alterar).'},
-  {pdv:'812420', cliente:'Innovcoating', notionId:'', doces:'mix', salgados:'—', tentacao:'A13,A14', gourmet:'—', instrucoes:'Slots A13 e A14 são Tentação — rotar o produto com melhor venda e menor quebra.'},
+  {pdv:'812420', cliente:'Innovcoating', notionId:'', doces:'mix', salgados:'mix', tentacao:'A13,A14', gourmet:'—', mix:true, instrucoes:'Slots A13 e A14 são Tentação — rotar o produto com melhor venda e menor quebra. Slots A15-A18: ⚠️ Mix: neste PDV as espirais aceitam tanto frescos doces como salgados ao mesmo preço — sem separação por tipo. Abastecer com o produto de melhor venda independentemente da categoria.'},
   {pdv:'813878', cliente:'IMV', notionId:'', doces:'A13,A14', salgados:'A15–A18', tentacao:'—', gourmet:'—', instrucoes:'Doces nos slots A13-A14. Salgados nos slots A15-A18.'},
-  {pdv:'815691', cliente:'PES - Projetos Equipamentos', notionId:'', doces:'21,22,24,25,28,41–48', salgados:'—', tentacao:'—', gourmet:'—', instrucoes:'Mix de doces e salgados no mesmo preço nos slots indicados.'},
-  {pdv:'813267', cliente:'Promoplas', notionId:'', doces:'A22,A24,A26,A41–A46', salgados:'—', tentacao:'—', gourmet:'—', instrucoes:'Frescos nos slots A22, A24, A26 e A41 a A46.'},
+  {pdv:'815691', cliente:'PES - Projetos Equipamentos', notionId:'', doces:'mix', salgados:'mix', tentacao:'—', gourmet:'—', mix:true, instrucoes:'Slots 21,22,24,25,28 e 41-48: ⚠️ Mix: neste PDV as espirais aceitam tanto frescos doces como salgados ao mesmo preço — sem separação por tipo. Abastecer com o produto de melhor venda independentemente da categoria.'},
+  {pdv:'813267', cliente:'Promoplas', notionId:'', doces:'mix', salgados:'mix', tentacao:'—', gourmet:'—', mix:true, instrucoes:'Slots A22, A24, A26 e A41-A46: ⚠️ Mix: neste PDV as espirais aceitam tanto frescos doces como salgados ao mesmo preço — sem separação por tipo. Abastecer com o produto de melhor venda independentemente da categoria.'},
   {pdv:'815504', cliente:'HRV Administração', notionId:'', doces:'A31,A32', salgados:'A33–A37', tentacao:'—', gourmet:'A38', instrucoes:'Doces A31-A32. Salgados A33-A37. Slot A38 reservado para Gourmet ⭐.'},
   {pdv:'807540', cliente:'BA MG2', notionId:'', doces:'21,22', salgados:'41,42,43', tentacao:'44,45,46', gourmet:'—', instrucoes:'Doces 21-22. Salgados 41-43. Tentação nos slots 44,45,46 — rotar produto com melhor venda.'},
 ]
@@ -228,6 +228,12 @@ function FrescoDetalhe({fresco, onBack}) {
             <div style={{fontWeight:600,color:C.text}}>{fresco.gourmet}</div>
           </div>
         </div>
+        {fresco.mix && (
+          <div style={{...S.card,background:'#E3A34011',border:'1px solid #E3A34044',marginBottom:'8px'}}>
+            <div style={{color:'#E3A340',fontSize:'12px',fontWeight:600,marginBottom:'4px'}}>⚠️ PDV MIX — Doces e Salgados ao Mesmo Preço</div>
+            <div style={{color:C.text,fontSize:'12px',lineHeight:1.6}}>As espirais deste PDV aceitam tanto frescos doces como salgados ao mesmo preço — sem separação por tipo. Abastecer com o produto de melhor venda independentemente da categoria.</div>
+          </div>
+        )}
         <div style={{...S.card,background:`${C.accent}11`,border:`1px solid ${C.accent}33`}}>
           <div style={{color:C.accent,fontSize:'12px',fontWeight:600,marginBottom:'8px'}}>📋 Instruções de Abastecimento</div>
           <div style={{color:C.text,fontSize:'13px',lineHeight:1.6}}>{fresco.instrucoes}</div>
@@ -446,8 +452,9 @@ function TabFrescos({onVerFresco}) {
                 <span style={{fontWeight:600,color:C.text}}>{f.cliente}</span>
               </div>
               <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
-                {f.doces!=='—' && <span style={S.tag}>🍰 Doces</span>}
-                {f.salgados!=='—' && <span style={S.tag}>🥪 Salgados</span>}
+                {f.mix && <span style={{...S.tag,background:'#E3A34022',color:'#E3A340'}}>⚠️ Mix</span>}
+                {!f.mix && f.doces!=='—' && <span style={S.tag}>🍰 Doces</span>}
+                {!f.mix && f.salgados!=='—' && <span style={S.tag}>🥪 Salgados</span>}
                 {f.tentacao!=='—' && <span style={{...S.tag,background:`${C.warning}22`,color:C.warning}}>🟡 Tentação</span>}
                 {f.gourmet!=='—' && <span style={{...S.tag,background:'#A371F722',color:'#A371F7'}}>⭐ Gourmet</span>}
                 <span style={{color:C.accent,fontSize:'12px',marginLeft:'4px'}}>→</span>
