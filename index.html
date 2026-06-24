@@ -2,9 +2,57 @@
 <html lang="pt">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#0D1117" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Rota 606 — mybreak</title>
+    <style>
+      *, *::before, *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html, body {
+        width: 100%;
+        height: 100%;
+        min-height: 100vh;
+        min-height: -webkit-fill-available;
+        background: #0D1117;
+        color: #E6EDF3;
+        overflow-x: hidden;
+        -webkit-text-size-adjust: 100%;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+      }
+      #root {
+        width: 100%;
+        min-height: 100vh;
+        min-height: -webkit-fill-available;
+        background: #0D1117;
+        display: flex;
+        flex-direction: column;
+      }
+      /* Remove scrollbar branco */
+      ::-webkit-scrollbar {
+        width: 4px;
+        height: 4px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #0D1117;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #30363D;
+        border-radius: 4px;
+      }
+      /* Safe area para iPhones com notch */
+      .safe-top {
+        padding-top: env(safe-area-inset-top);
+      }
+      .safe-bottom {
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
