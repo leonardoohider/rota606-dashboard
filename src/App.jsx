@@ -269,7 +269,6 @@ function TabInicio({chamados,loading,onVerFresco,onVerAT,pdvYoung,pdv1050}) {
   const dias = ['','2ª Feira','3ª Feira','4ª Feira','5ª Feira','6ª Feira']
   const diaAtual = dias[diaIdx] || '2ª Feira'
   const rotaHoje = ROTA[diaAtual] || []
-  const eDiaUtil = diaIdx >= 1 && diaIdx <= 5
 
   // Detectar PDVs com frescos na rota de hoje
   const clientesComFrescos = rotaHoje.map(c => {
@@ -277,14 +276,29 @@ function TabInicio({chamados,loading,onVerFresco,onVerAT,pdvYoung,pdv1050}) {
     return {...c, pdvsFrescos}
   }).filter(c => c.pdvsFrescos.length > 0)
 
-  // BA Vidros — parse listas
+  // BA Vidros — parse listas e supply date
+  function getSupplyDate(texto) {
+    if (!texto) return null
+    const match = texto.match(/^#supply:(\d{2}\/\d{2}\/\d{4})/)
+    return match ? match[1] : null
+  }
   function parseItens(texto) {
     if (!texto) return []
-    return texto.split('\n').map(l => l.replace(/^[•·\-]\s*/, '').trim()).filter(Boolean)
+    return texto.split('\n')
+      .filter(l => !l.startsWith('#supply:'))
+      .map(l => l.replace(/^[•·\-]\s*/, '').trim())
+      .filter(Boolean)
   }
   const itensYoung = parseItens(pdvYoung)
   const itens1050 = parseItens(pdv1050)
-  const temBAVidros = eDiaUtil && (itensYoung.length > 0 || itens1050.length > 0)
+
+  // Mostrar BA Vidros APENAS na data de supply definida (não baseado em "há produtos")
+  const supplyYoung = getSupplyDate(pdvYoung)
+  const supply1050 = getSupplyDate(pdv1050)
+  const todayFmt = today()
+  const mostrarYoung = itensYoung.length > 0 && supplyYoung === todayFmt
+  const mostrar1050 = itens1050.length > 0 && supply1050 === todayFmt
+  const temBAVidros = mostrarYoung || mostrar1050
 
   return (
     <div>
@@ -305,7 +319,7 @@ function TabInicio({chamados,loading,onVerFresco,onVerAT,pdvYoung,pdv1050}) {
       {temBAVidros && (
         <div style={{...S.card,borderColor:`${C.accent}66`,background:`${C.accent}08`}}>
           <div style={{...S.cardTitle,color:C.accent}}>📦 BA Vidros Refeitório — Reposição Hoje</div>
-          {itensYoung.length > 0 && (
+          {mostrarYoung && itensYoung.length > 0 && (
             <div style={{marginBottom:'12px'}}>
               <div style={{color:C.muted,fontSize:'11px',fontWeight:600,marginBottom:'6px'}}>PDV 806477 — Young</div>
               {itensYoung.map((item,i) => (
@@ -316,7 +330,7 @@ function TabInicio({chamados,loading,onVerFresco,onVerAT,pdvYoung,pdv1050}) {
               ))}
             </div>
           )}
-          {itens1050.length > 0 && (
+          {mostrar1050 && itens1050.length > 0 && (
             <div>
               <div style={{color:C.muted,fontSize:'11px',fontWeight:600,marginBottom:'6px'}}>PDV 807542 — 1050</div>
               {itens1050.map((item,i) => (
@@ -824,6 +838,7 @@ function PDVCard({id, label, pageId, itens, onSave}) {
           <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
             <input
               type="number"
+              inputMode="numeric"
               min="1"
               value={qtd}
               onChange={e => setQtd(e.target.value)}
@@ -837,6 +852,7 @@ function PDVCard({id, label, pageId, itens, onSave}) {
               onChange={e => setProduto(e.target.value)}
               placeholder="Nome do produto"
               style={{...S.input,flex:1,minWidth:'140px'}}
+              enterKeyHint="done"
               onKeyDown={e => e.key==='Enter' && adicionar()}
             />
             <button style={{...S.btn,flexShrink:0}} onClick={adicionar} disabled={saving||!qtd||!produto}>
@@ -853,17 +869,35 @@ function PDVCard({id, label, pageId, itens, onSave}) {
 
 // ── ABA BA VIDROS REFEITÓRIO ──────────────────────────────────
 function TabBAVidros({pdvYoung, pdv1050, onSave}) {
-  // Converter texto do Notion em array de itens
+  // Parse supply date from first line metadata (#supply:dd/mm/yyyy)
+  function getSupplyDate(texto) {
+    if (!texto) return null
+    const match = texto.match(/^#supply:(\d{2}\/\d{2}\/\d{4})/)
+    return match ? match[1] : null
+  }
+
+  // Converter texto do Notion em array de itens (ignorar linha de metadata)
   function parseItens(texto) {
     if (!texto) return []
-    return texto.split('\n').map(l => l.replace(/^[•·\-]\s*/, '').trim()).filter(Boolean)
+    return texto.split('\n')
+      .filter(l => !l.startsWith('#supply:'))
+      .map(l => l.replace(/^[•·\-]\s*/, '').trim())
+      .filter(Boolean)
   }
 
   const itensYoung = parseItens(pdvYoung)
   const itens1050 = parseItens(pdv1050)
 
+  function amanha() {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    return d.toLocaleDateString('pt-PT', {day:'2-digit',month:'2-digit',year:'numeric'})
+  }
+
   const handleSave = async (pdv, itens) => {
-    const texto = itens.map(i => `• ${i}`).join('\n')
+    // Prefixar com supply date (amanhã) para mostrar no Início só nessa data
+    const supplyLine = itens.length > 0 ? `#supply:${amanha()}\n` : ''
+    const texto = supplyLine + itens.map(i => `• ${i}`).join('\n')
     await onSave(pdv, texto)
   }
 
