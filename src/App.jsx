@@ -264,7 +264,7 @@ function FrescoDetalhe({fresco, onBack}) {
 }
 
 // ── ABA INÍCIO ────────────────────────────────────────────────
-function TabInicio({chamados,loading,onVerFresco,onVerAT,pdvYoung,pdv1050}) {
+function TabInicio({chamados,loading,onVerFresco,onVerAT,pdvYoung,pdv1050,pdvYoungEdit,pdv1050Edit}) {
   const diaIdx = new Date().getDay()
   const dias = ['','2ª Feira','3ª Feira','4ª Feira','5ª Feira','6ª Feira']
   const diaAtual = dias[diaIdx] || '2ª Feira'
@@ -276,26 +276,31 @@ function TabInicio({chamados,loading,onVerFresco,onVerAT,pdvYoung,pdv1050}) {
     return {...c, pdvsFrescos}
   }).filter(c => c.pdvsFrescos.length > 0)
 
-  // BA Vidros — parse listas e supply date
-  function getSupplyDate(texto) {
-    if (!texto) return null
-    const match = texto.match(/^#supply:(\d{2}\/\d{2}\/\d{4})/)
-    return match ? match[1] : null
+  // BA Vidros — calcular supply date (editDate + 1 dia) e comparar com hoje
+  function editDatePlusOne(isoDate) {
+    // isoDate = "YYYY-MM-DD"
+    if (!isoDate) return null
+    const [y,m,d] = isoDate.split('-').map(Number)
+    const next = new Date(y, m-1, d)
+    next.setDate(next.getDate() + 1)
+    return next.toLocaleDateString('pt-PT', {day:'2-digit',month:'2-digit',year:'numeric'})
   }
+
   function parseItens(texto) {
     if (!texto) return []
     return texto.split('\n')
-      .filter(l => !l.startsWith('#supply:'))
+      .filter(l => !l.startsWith('#'))
       .map(l => l.replace(/^[•·\-]\s*/, '').trim())
       .filter(Boolean)
   }
+
   const itensYoung = parseItens(pdvYoung)
   const itens1050 = parseItens(pdv1050)
-
-  // Mostrar BA Vidros APENAS na data de supply definida (não baseado em "há produtos")
-  const supplyYoung = getSupplyDate(pdvYoung)
-  const supply1050 = getSupplyDate(pdv1050)
   const todayFmt = today()
+
+  // Mostrar APENAS se hoje = data de edição + 1 dia (dia real de abastecimento)
+  const supplyYoung = editDatePlusOne(pdvYoungEdit)
+  const supply1050 = editDatePlusOne(pdv1050Edit)
   const mostrarYoung = itensYoung.length > 0 && supplyYoung === todayFmt
   const mostrar1050 = itens1050.length > 0 && supply1050 === todayFmt
   const temBAVidros = mostrarYoung || mostrar1050
@@ -869,18 +874,9 @@ function PDVCard({id, label, pageId, itens, onSave}) {
 
 // ── ABA BA VIDROS REFEITÓRIO ──────────────────────────────────
 function TabBAVidros({pdvYoung, pdv1050, onSave}) {
-  // Parse supply date from first line metadata (#supply:dd/mm/yyyy)
-  function getSupplyDate(texto) {
-    if (!texto) return null
-    const match = texto.match(/^#supply:(\d{2}\/\d{2}\/\d{4})/)
-    return match ? match[1] : null
-  }
-
-  // Converter texto do Notion em array de itens (ignorar linha de metadata)
   function parseItens(texto) {
     if (!texto) return []
     return texto.split('\n')
-      .filter(l => !l.startsWith('#supply:'))
       .map(l => l.replace(/^[•·\-]\s*/, '').trim())
       .filter(Boolean)
   }
@@ -888,16 +884,8 @@ function TabBAVidros({pdvYoung, pdv1050, onSave}) {
   const itensYoung = parseItens(pdvYoung)
   const itens1050 = parseItens(pdv1050)
 
-  function amanha() {
-    const d = new Date()
-    d.setDate(d.getDate() + 1)
-    return d.toLocaleDateString('pt-PT', {day:'2-digit',month:'2-digit',year:'numeric'})
-  }
-
   const handleSave = async (pdv, itens) => {
-    // Prefixar com supply date (amanhã) para mostrar no Início só nessa data
-    const supplyLine = itens.length > 0 ? `#supply:${amanha()}\n` : ''
-    const texto = supplyLine + itens.map(i => `• ${i}`).join('\n')
+    const texto = itens.map(i => `• ${i}`).join('\n')
     await onSave(pdv, texto)
   }
 
@@ -1400,13 +1388,21 @@ function Dashboard() {
   const [syncOk,setSyncOk] = useState(true)
   const [pdvYoung,setPdvYoung] = useState('')
   const [pdv1050,setPdv1050] = useState('')
+  const [pdvYoungEdit,setPdvYoungEdit] = useState('') // YYYY-MM-DD
+  const [pdv1050Edit,setPdv1050Edit] = useState('') // YYYY-MM-DD
   const [chamados,setChamados] = useState([])
   const [loading,setLoading] = useState(true)
   const [frescoAtivo,setFrescoAtivo] = useState(null)
 
+  // Busca texto + data de última edição da página (para calcular dia de supply)
   const fetchPdv = async (pageId) => {
-    const data = await nGet(`blocks/${pageId}/children`,{page_size:'50'})
-    return data.results ? extractText(data.results) : ''
+    const [blocks, page] = await Promise.all([
+      nGet(`blocks/${pageId}/children`, {page_size:'50'}),
+      nGet(`pages/${pageId}`)
+    ])
+    const text = blocks.results ? extractText(blocks.results) : ''
+    const editDate = page.last_edited_time ? page.last_edited_time.split('T')[0] : '' // YYYY-MM-DD
+    return { text, editDate }
   }
 
   const fetchChamados = async () => {
@@ -1460,12 +1456,14 @@ function Dashboard() {
   const sync = useCallback(async () => {
     setSyncing(true)
     try {
-      const [young,mil,ch] = await Promise.all([
+      const [youngData, milData, ch] = await Promise.all([
         fetchPdv(PAGE_IDS.pdv806477),
         fetchPdv(PAGE_IDS.pdv807542),
         fetchChamados(),
       ])
-      setPdvYoung(young); setPdv1050(mil); setChamados(ch)
+      setPdvYoung(youngData.text); setPdvYoungEdit(youngData.editDate)
+      setPdv1050(milData.text); setPdv1050Edit(milData.editDate)
+      setChamados(ch)
       setSyncOk(true)
       setLastSync(new Date().toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'}))
     } catch { setSyncOk(false) }
@@ -1505,8 +1503,9 @@ function Dashboard() {
     }
 
     // 3. Atualizar estado local
-    if (pdv === 'young') setPdvYoung(text)
-    else setPdv1050(text)
+    const nowEdit = new Date().toISOString().split('T')[0]
+    if (pdv === 'young') { setPdvYoung(text); setPdvYoungEdit(nowEdit) }
+    else { setPdv1050(text); setPdv1050Edit(nowEdit) }
   }
 
 
@@ -1560,7 +1559,7 @@ function Dashboard() {
       </div>
 
       <main style={S.main}>
-        {tab===0 && <TabInicio chamados={chamados} loading={loading} onVerFresco={setFrescoAtivo} onVerAT={()=>setTab(1)} pdvYoung={pdvYoung} pdv1050={pdv1050}/>}
+        {tab===0 && <TabInicio chamados={chamados} loading={loading} onVerFresco={setFrescoAtivo} onVerAT={()=>setTab(1)} pdvYoung={pdvYoung} pdv1050={pdv1050} pdvYoungEdit={pdvYoungEdit} pdv1050Edit={pdv1050Edit}/>}
         {tab===1 && <TabChamados chamados={chamados} loading={loading}/>}
         {tab===2 && <TabBAVidros pdvYoung={pdvYoung} pdv1050={pdv1050} onSave={savePdv}/>}
         {tab===3 && <TabFrescos onVerFresco={setFrescoAtivo}/>}
