@@ -750,6 +750,7 @@ function PDVCard({id, label, pageId, itens, onSave}) {
   const [produto, setProduto] = useState('')
   const [saving, setSaving] = useState(false)
   const [confirmClear, setConfirmClear] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   function amanha() {
     const d = new Date()
@@ -782,10 +783,12 @@ function PDVCard({id, label, pageId, itens, onSave}) {
     await onSave(id, [])
     setSaving(false)
     setConfirmClear(false)
+    setConfirmDelete(false)
   }
 
   return (
     <>
+      {/* Popup Abastecido */}
       {confirmClear && (
         <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'#000000bb',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
           <div style={{background:C.card,border:`1px solid ${C.accent}44`,borderRadius:'12px',padding:'24px',maxWidth:'300px',width:'100%'}}>
@@ -801,11 +804,30 @@ function PDVCard({id, label, pageId, itens, onSave}) {
           </div>
         </div>
       )}
+      {/* Popup Apagar Tudo */}
+      {confirmDelete && (
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'#000000bb',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
+          <div style={{background:C.card,border:`1px solid ${C.danger}44`,borderRadius:'12px',padding:'24px',maxWidth:'300px',width:'100%'}}>
+            <div style={{fontSize:'32px',textAlign:'center',marginBottom:'10px'}}>🗑️</div>
+            <div style={{fontWeight:700,textAlign:'center',color:C.text,fontSize:'16px',marginBottom:'6px'}}>Apagar Tudo</div>
+            <div style={{color:C.muted,fontSize:'13px',textAlign:'center',marginBottom:'18px'}}>{label} — tens a certeza que queres apagar toda a lista?</div>
+            <div style={{display:'flex',gap:'8px'}}>
+              <button onClick={() => setConfirmDelete(false)} style={{flex:1,background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'6px',padding:'10px',cursor:'pointer',fontSize:'13px'}}>Cancelar</button>
+              <button onClick={limpar} style={{flex:1,background:'transparent',color:C.danger,border:`1px solid ${C.danger}44`,borderRadius:'6px',padding:'10px',fontWeight:700,cursor:'pointer',fontSize:'13px'}}>
+                🗑️ Apagar Tudo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={S.card}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
           <div style={S.cardTitle}>📦 {label}</div>
           {itens.length > 0 && (
-            <button style={{...S.btn,fontSize:'12px',padding:'5px 12px',background:C.accent}} onClick={() => setConfirmClear(true)} disabled={saving}>✅ Abastecido</button>
+            <div style={{display:'flex',flexDirection:'column',gap:'6px',alignItems:'flex-end'}}>
+              <button style={{...S.btn,fontSize:'12px',padding:'5px 12px',background:C.accent}} onClick={() => setConfirmClear(true)} disabled={saving}>✅ Abastecido</button>
+              <button style={{...S.btnDanger,fontSize:'12px',padding:'4px 12px'}} onClick={() => setConfirmDelete(true)} disabled={saving}>🗑️ Apagar Tudo</button>
+            </div>
           )}
         </div>
 
