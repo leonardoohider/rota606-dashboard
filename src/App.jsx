@@ -128,6 +128,13 @@ const FRESCOS = [
   {pdv:'813267', cliente:'Promoplas', notionId:'', doces:'mix', salgados:'mix', tentacao:'—', gourmet:'—', mix:true, instrucoes:'Slots A22, A24, A26 e A41-A46: ⚠️ Mix: neste PDV as espirais aceitam tanto frescos doces como salgados ao mesmo preço — sem separação por tipo. Abastecer com o produto de melhor venda independentemente da categoria.'},
   {pdv:'815504', cliente:'HRV Administração', notionId:'', doces:'A31,A32', salgados:'A33–A37', tentacao:'—', gourmet:'A38', instrucoes:'Doces A31-A32. Salgados A33-A37. Slot A38 reservado para Gourmet ⭐.'},
   {pdv:'807540', cliente:'BA MG2', notionId:'', doces:'21,22', salgados:'41,42,43', tentacao:'44,45,46', gourmet:'—', instrucoes:'Doces 21-22. Salgados 41-43. Tentação nos slots 44,45,46 — rotar produto com melhor venda.'},
+  // ── Catalogados em 25/06/2026 ──
+  {pdv:'814082', cliente:'Saica Pack Portugal (FAS 900)', notionId:'38a93fb1601f81ac89f9e6b9aa58297b', doces:'21,22,24,25,27', salgados:'41,42,43,44,45,47,48', tentacao:'—', gourmet:'46', instrucoes:'Doces: 21,22,24,25,27. Salgados: 41,42,43,44,45,47,48. Slot 46 reservado para Gourmet ⭐.'},
+  {pdv:'811869', cliente:'Saica Pack Caneladora', notionId:'38a93fb1601f8118a767ce7c3be0d752', doces:'21,23,25', salgados:'11,13,15,40,41,42,43,44', tentacao:'—', gourmet:'45', instrucoes:'Doces: 21,23,25. Salgados: 11,13,15,40,41,42,43,44. Slot 45 reservado para Gourmet ⭐.'},
+  {pdv:'811867', cliente:'Saica Pack Combi', notionId:'38a93fb1601f8125a171d47fe4300c44', doces:'A18,A37,A38', salgados:'A14,A15,A16,A17', tentacao:'—', gourmet:'—', instrucoes:'Doces: A18, A37, A38. Salgados: A14, A15, A16, A17.'},
+  {pdv:'807542', cliente:'BA Vidros Refeitório Fabricação', notionId:'38a93fb1601f8183b052ffa15e2c4f86', doces:'mix', salgados:'mix', tentacao:'49,40', gourmet:'—', mix:true, instrucoes:'Frescos mesmo preço — todos os slots 11-30, 31-39, 41-48 ao mesmo preço sem distinção. Tentação nos slots 49 e 40.'},
+  {pdv:'815507', cliente:'HRV Fabricação', notionId:'38a93fb1601f81c68499f6ba797f53a5', doces:'21,23,25', salgados:'40,41,42,43,53,54,55', tentacao:'44,45', gourmet:'—', instrucoes:'Doces: 21,23,25. Salgados: 40,41,42,43,53,54,55. Tentação: 44 e 45. Atenção: slots 50,51,52 não são frescos.'},
+  {pdv:'817004', cliente:'Vidrimolde', notionId:'38a93fb1601f8124ac11cf75e2650df9', doces:'mix', salgados:'mix', tentacao:'—', gourmet:'—', mix:true, instrucoes:'Frescos mesmo preço — slots 21,22,24,41,42,43,44,45,46. Doces e salgados ao mesmo preço sem distinção.'},
 ]
 
 // PDVs que têm frescos (para deteção na rota)
@@ -257,17 +264,27 @@ function FrescoDetalhe({fresco, onBack}) {
 }
 
 // ── ABA INÍCIO ────────────────────────────────────────────────
-function TabInicio({chamados,loading,onVerFresco,onVerAT}) {
+function TabInicio({chamados,loading,onVerFresco,onVerAT,pdvYoung,pdv1050}) {
   const diaIdx = new Date().getDay()
   const dias = ['','2ª Feira','3ª Feira','4ª Feira','5ª Feira','6ª Feira']
   const diaAtual = dias[diaIdx] || '2ª Feira'
   const rotaHoje = ROTA[diaAtual] || []
+  const eDiaUtil = diaIdx >= 1 && diaIdx <= 5
 
   // Detectar PDVs com frescos na rota de hoje
   const clientesComFrescos = rotaHoje.map(c => {
     const pdvsFrescos = c.maquinas.filter(m => FRESCOS_PDVS.includes(m))
     return {...c, pdvsFrescos}
   }).filter(c => c.pdvsFrescos.length > 0)
+
+  // BA Vidros — parse listas
+  function parseItens(texto) {
+    if (!texto) return []
+    return texto.split('\n').map(l => l.replace(/^[•·\-]\s*/, '').trim()).filter(Boolean)
+  }
+  const itensYoung = parseItens(pdvYoung)
+  const itens1050 = parseItens(pdv1050)
+  const temBAVidros = eDiaUtil && (itensYoung.length > 0 || itens1050.length > 0)
 
   return (
     <div>
@@ -283,6 +300,35 @@ function TabInicio({chamados,loading,onVerFresco,onVerAT}) {
           )}
         </div>
       </div>
+
+      {/* BA Vidros — alerta de reposição */}
+      {temBAVidros && (
+        <div style={{...S.card,borderColor:`${C.accent}66`,background:`${C.accent}08`}}>
+          <div style={{...S.cardTitle,color:C.accent}}>📦 BA Vidros Refeitório — Reposição Hoje</div>
+          {itensYoung.length > 0 && (
+            <div style={{marginBottom:'12px'}}>
+              <div style={{color:C.muted,fontSize:'11px',fontWeight:600,marginBottom:'6px'}}>PDV 806477 — Young</div>
+              {itensYoung.map((item,i) => (
+                <div key={i} style={{display:'flex',alignItems:'center',gap:'8px',padding:'4px 0',borderBottom:i<itensYoung.length-1?`1px solid ${C.border}`:'none'}}>
+                  <div style={{width:'6px',height:'6px',borderRadius:'50%',background:C.accent,flexShrink:0}}/>
+                  <div style={{color:C.text,fontSize:'13px'}}>{item}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {itens1050.length > 0 && (
+            <div>
+              <div style={{color:C.muted,fontSize:'11px',fontWeight:600,marginBottom:'6px'}}>PDV 807542 — 1050</div>
+              {itens1050.map((item,i) => (
+                <div key={i} style={{display:'flex',alignItems:'center',gap:'8px',padding:'4px 0',borderBottom:i<itens1050.length-1?`1px solid ${C.border}`:'none'}}>
+                  <div style={{width:'6px',height:'6px',borderRadius:'50%',background:C.accent,flexShrink:0}}/>
+                  <div style={{color:C.text,fontSize:'13px'}}>{item}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Rota do dia */}
       <div style={S.card}>
@@ -448,19 +494,97 @@ function ChamadoDetalhe({chamado, onBack, onDelete}) {
 }
 
 // ── ABA CHAMADOS ─────────────────────────────────────────────
-function TabChamados({chamados, loading}) {
+function TabChamados({chamados: chamadosMesAtual, loading: loadingInicial}) {
   const [chamadoAtivo, setChamadoAtivo] = useState(null)
   const [confirmDelId, setConfirmDelId] = useState(null)
-  const [lista, setLista] = useState(chamados)
 
-  useEffect(() => { setLista(chamados) }, [chamados])
+  // Filtros
+  const [mesesDisponiveis, setMesesDisponiveis] = useState([])
+  const [subpastaFiltro, setSubpastaFiltro] = useState(null) // null = mês atual
+  const [filtroCliente, setFiltroCliente] = useState('')
+  const [lista, setLista] = useState(chamadosMesAtual)
+  const [loadingFiltro, setLoadingFiltro] = useState(false)
+  const resetTimerRef = useState(null)
+
+  // Carregar meses disponíveis (subpastas AT)
+  useEffect(() => {
+    nGet(`blocks/${PAGE_IDS.assistenciaTecnica}/children`, {page_size:'20'}).then(data => {
+      if (data.results) {
+        const meses = data.results
+          .filter(b => b.type === 'child_page')
+          .map(b => ({id: b.id, titulo: b.child_page?.title || ''}))
+          .filter(m => /\w+\/\d{4}/.test(m.titulo))
+          .reverse()
+        setMesesDisponiveis(meses)
+      }
+    }).catch(() => {})
+  }, [])
+
+  // Sincronizar lista com chamados do mês atual quando não há filtro
+  useEffect(() => {
+    if (!subpastaFiltro) setLista(chamadosMesAtual)
+  }, [chamadosMesAtual, subpastaFiltro])
+
+  // Quando muda de subpasta, buscar chamados desse mês
+  const fetchChamadosDaSubpasta = async (subpastaId) => {
+    setLoadingFiltro(true)
+    try {
+      const data = await nGet(`blocks/${subpastaId}/children`, {page_size:'50'})
+      if (!data.results) { setLista([]); return }
+      const parsed = data.results
+        .filter(b => b.type === 'child_page')
+        .map(b => {
+          const titulo = b.child_page?.title || ''
+          const matchCliente = titulo.match(/–\s*(.+?)\s*[|]/)
+          const matchMaq = titulo.match(/Máq\.?\s*([\w]+)/)
+          const matchDesc = titulo.match(/Máq\.?\s*[\w]+\s*–\s*(.+)$/)
+          const dataISO = (b.created_time || '').split('T')[0]
+          const dataFmt = dataISO ? dataISO.split('-').reverse().join('/') : '–'
+          return {
+            pageId: b.id,
+            titulo: titulo.replace(/🔧\s*Chamado Técnico\s*–\s*/,'').replace(/\\|/g,'|'),
+            cliente: matchCliente?.[1]?.trim() || '–',
+            maquina: matchMaq?.[1]?.trim() || '–',
+            problema: matchDesc?.[1]?.trim() || '',
+            data: dataFmt, dataISO,
+          }
+        }).sort((a,b) => b.dataISO.localeCompare(a.dataISO))
+      setLista(parsed)
+    } catch { setLista([]) }
+    finally { setLoadingFiltro(false) }
+  }
+
+  const handleMesFiltro = (subpasta) => {
+    // Limpar timer anterior
+    if (resetTimerRef[0]) clearTimeout(resetTimerRef[0])
+
+    if (!subpasta) {
+      setSubpastaFiltro(null)
+      setLista(chamadosMesAtual)
+      resetTimerRef[0] = null
+      return
+    }
+    setSubpastaFiltro(subpasta)
+    fetchChamadosDaSubpasta(subpasta.id)
+
+    // Smart reset: volta ao mês atual após 2 min de inatividade
+    resetTimerRef[0] = setTimeout(() => {
+      setSubpastaFiltro(null)
+      setLista(chamadosMesAtual)
+      resetTimerRef[0] = null
+    }, 2 * 60 * 1000)
+  }
 
   const handleDelete = (pageId) => {
     setLista(prev => prev.filter(c => c.pageId !== pageId))
     setChamadoAtivo(null)
   }
 
-  const porDia = lista.reduce((acc, c) => {
+  const listaFiltrada = lista.filter(c =>
+    !filtroCliente || c.cliente.toLowerCase().includes(filtroCliente.toLowerCase())
+  )
+
+  const porDia = listaFiltrada.reduce((acc, c) => {
     const key = c.dataISO || 'sem-data'
     if (!acc[key]) acc[key] = []
     acc[key].push(c)
@@ -476,19 +600,60 @@ function TabChamados({chamados, loading}) {
 
   if (chamadoAtivo) return <ChamadoDetalhe chamado={chamadoAtivo} onBack={() => setChamadoAtivo(null)} onDelete={handleDelete}/>
 
+  const isFiltered = !!subpastaFiltro
+  const labelMes = subpastaFiltro ? subpastaFiltro.titulo : getMesLabel()
+
   return (
     <div>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
-        <div style={S.cardTitle}>🔧 A.T. — {getMesLabel()}</div>
-        {lista.length > 0 && <span style={S.badge(C.accent)}>{lista.length}</span>}
+      {/* Cabeçalho + filtros */}
+      <div style={S.card}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
+          <div style={S.cardTitle}>🔧 A.T. — {labelMes}
+            {isFiltered && <span style={{...S.badge(C.warning),marginLeft:'8px',fontSize:'10px'}}>filtro ativo</span>}
+          </div>
+          {listaFiltrada.length > 0 && <span style={S.badge(C.accent)}>{listaFiltrada.length}</span>}
+        </div>
+
+        {/* Filtro mês */}
+        <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}}>
+          <div style={{flex:1,minWidth:'140px'}}>
+            <div style={{color:C.muted,fontSize:'11px',fontWeight:600,marginBottom:'4px'}}>📅 MÊS</div>
+            <select value={subpastaFiltro?.id||''} onChange={e => {
+              const found = mesesDisponiveis.find(m => m.id === e.target.value)
+              handleMesFiltro(found || null)
+            }} style={{...S.select,width:'100%'}}>
+              <option value="">Mês atual ({getMesLabel()})</option>
+              {mesesDisponiveis.map(m => (
+                <option key={m.id} value={m.id}>{m.titulo}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{flex:1,minWidth:'140px'}}>
+            <div style={{color:C.muted,fontSize:'11px',fontWeight:600,marginBottom:'4px'}}>🔍 CLIENTE</div>
+            <input value={filtroCliente} onChange={e => setFiltroCliente(e.target.value)}
+              placeholder="Filtrar por cliente…" style={{...S.input,width:'100%',boxSizing:'border-box'}}/>
+          </div>
+          {(isFiltered || filtroCliente) && (
+            <div style={{display:'flex',alignItems:'flex-end'}}>
+              <button onClick={() => { handleMesFiltro(null); setFiltroCliente('') }} style={S.btnSm}>
+                ✕ Limpar filtros
+              </button>
+            </div>
+          )}
+        </div>
+        {isFiltered && (
+          <div style={{color:C.muted,fontSize:'11px',background:`${C.warning}11`,border:`1px solid ${C.warning}33`,borderRadius:'6px',padding:'6px 10px'}}>
+            ⏱️ Volta automaticamente ao mês atual em 2 min sem interação
+          </div>
+        )}
       </div>
 
-      {loading ? (
+      {(loadingInicial && !isFiltered) || loadingFiltro ? (
         <div style={{...S.card,textAlign:'center',padding:'32px',color:C.muted}}>A carregar…</div>
-      ) : lista.length === 0 ? (
+      ) : listaFiltrada.length === 0 ? (
         <div style={{...S.card,textAlign:'center',padding:'32px'}}>
           <div style={{fontSize:'28px',marginBottom:'8px'}}>📋</div>
-          <div style={{color:C.muted}}>Sem assistências técnicas este mês</div>
+          <div style={{color:C.muted}}>{filtroCliente ? `Sem resultados para "${filtroCliente}"` : 'Sem assistências técnicas neste período'}</div>
         </div>
       ) : diasOrdenados.map(dia => (
         <div key={dia} style={{marginBottom:'16px'}}>
@@ -900,12 +1065,17 @@ function TabInventario() {
 
       const listaMaquinas = TODAS_MAQUINAS.map(m => `${m.pdv} (${m.cliente} — ${m.modelo})`).join('\n')
 
-      const response = await fetch('/api/gemini', {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          pdfBase64: base64,
-          prompt: `És um assistente de gestão de rota de máquinas vending.
+          model: 'claude-sonnet-4-6',
+          max_tokens: 2000,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+              { type: 'text', text: `És um assistente de gestão de rota de máquinas vending.
 
 Esta é a lista COMPLETA de máquinas da Rota 606:
 ${listaMaquinas}
@@ -919,20 +1089,20 @@ Responde APENAS em JSON válido, sem texto antes ou depois, neste formato exato:
   "total_feitas": 10,
   "total_em_falta": 30,
   "resumo": "Breve descrição do que encontraste no PDF"
-}`
+}` }
+            ]
+          }]
         })
       })
 
       if (!response.ok) {
         const errText = await response.text()
-        throw new Error(`Erro do servidor (${response.status}): ${errText.slice(0,200)}`)
+        throw new Error(`Erro da API (${response.status}): ${errText.slice(0,200)}`)
       }
-      const raw = await response.text()
-      if (!raw || raw.trim() === '') throw new Error('Resposta vazia do servidor. Verifica a GEMINI_API_KEY no Vercel.')
-      const data = JSON.parse(raw)
-      const texto = data.text || data.error || ''
-      if (data.error) throw new Error(data.error)
-      const clean = texto.replace(/\`\`\`json|\`\`\`/g, '').trim()
+      const data = await response.json()
+      const texto = data.content?.find(b => b.type === 'text')?.text || ''
+      if (!texto) throw new Error('Resposta vazia da API.')
+      const clean = texto.replace(/```json|```/g, '').trim()
       const parsed = JSON.parse(clean)
 
       // Enriquecer com dados das máquinas
@@ -1356,7 +1526,7 @@ function Dashboard() {
       </div>
 
       <main style={S.main}>
-        {tab===0 && <TabInicio chamados={chamados} loading={loading} onVerFresco={setFrescoAtivo} onVerAT={()=>setTab(1)}/>}
+        {tab===0 && <TabInicio chamados={chamados} loading={loading} onVerFresco={setFrescoAtivo} onVerAT={()=>setTab(1)} pdvYoung={pdvYoung} pdv1050={pdv1050}/>}
         {tab===1 && <TabChamados chamados={chamados} loading={loading}/>}
         {tab===2 && <TabBAVidros pdvYoung={pdvYoung} pdv1050={pdv1050} onSave={savePdv}/>}
         {tab===3 && <TabFrescos onVerFresco={setFrescoAtivo}/>}
@@ -1405,12 +1575,17 @@ function TabGestaoRota() {
         reader.readAsDataURL(file)
       })
 
-      const response = await fetch('/api/gemini', {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          pdfBase64: base64,
-          prompt: `És um analista de gestão de rota de máquinas vending especializado. Analisa este ficheiro PDF da Rota 606.
+          model: 'claude-sonnet-4-6',
+          max_tokens: 4000,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+              { type: 'text', text: `És um analista de gestão de rota de máquinas vending especializado. Analisa este ficheiro PDF da Rota 606.
 
 Extrai TODOS os dados de abastecimento, devoluções e danificados da Rota 606.
 
@@ -1440,19 +1615,19 @@ Responde APENAS em JSON válido sem texto antes ou depois:
   ],
   "alertas": ["Alerta 1", "Alerta 2"],
   "conclusao": "Análise resumida em 2-3 frases simples"
-}`
+}` }
+            ]
+          }]
         })
       })
 
       if (!response.ok) {
         const errText = await response.text()
-        throw new Error(`Erro do servidor (${response.status}): ${errText.slice(0,200)}`)
+        throw new Error(`Erro da API (${response.status}): ${errText.slice(0,200)}`)
       }
-      const raw = await response.text()
-      if (!raw || raw.trim() === '') throw new Error('Resposta vazia do servidor. Verifica a GEMINI_API_KEY no Vercel.')
-      const data = JSON.parse(raw)
-      const texto = data.text || data.error || ''
-      if (data.error) throw new Error(data.error)
+      const data = await response.json()
+      const texto = data.content?.find(b => b.type === 'text')?.text || ''
+      if (!texto) throw new Error('Resposta vazia da API.')
       const clean = texto.replace(/```json|```/g, '').trim()
       const parsed = JSON.parse(clean)
       setAnalise(parsed)
