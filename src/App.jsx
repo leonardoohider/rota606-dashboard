@@ -787,17 +787,25 @@ function PDVCard({id, label, pageId, itens, onSave}) {
   return (
     <>
       {confirmClear && (
-        <ConfirmPopup
-          mensagem={`Apagar toda a lista de reposição do ${label}?`}
-          onConfirm={limpar}
-          onCancel={() => setConfirmClear(false)}
-        />
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'#000000bb',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
+          <div style={{background:C.card,border:`1px solid ${C.accent}44`,borderRadius:'12px',padding:'24px',maxWidth:'300px',width:'100%'}}>
+            <div style={{fontSize:'32px',textAlign:'center',marginBottom:'10px'}}>✅</div>
+            <div style={{fontWeight:700,textAlign:'center',color:C.text,fontSize:'16px',marginBottom:'6px'}}>Confirmar Abastecimento</div>
+            <div style={{color:C.muted,fontSize:'13px',textAlign:'center',marginBottom:'18px'}}>{label} — todos os produtos desta lista foram abastecidos?</div>
+            <div style={{display:'flex',gap:'8px'}}>
+              <button onClick={() => setConfirmClear(false)} style={{flex:1,background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'6px',padding:'10px',cursor:'pointer',fontSize:'13px'}}>Cancelar</button>
+              <button onClick={limpar} style={{flex:1,background:C.accent,color:'#0D1117',border:'none',borderRadius:'6px',padding:'10px',fontWeight:700,cursor:'pointer',fontSize:'13px'}}>
+                ✅ Abastecido
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       <div style={S.card}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
           <div style={S.cardTitle}>📦 {label}</div>
           {itens.length > 0 && (
-            <button style={S.btnDanger} onClick={() => setConfirmClear(true)} disabled={saving}>🗑 Limpar</button>
+            <button style={{...S.btn,fontSize:'12px',padding:'5px 12px',background:C.accent}} onClick={() => setConfirmClear(true)} disabled={saving}>✅ Abastecido</button>
           )}
         </div>
 
