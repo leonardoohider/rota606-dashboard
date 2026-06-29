@@ -1208,6 +1208,7 @@ function TabInventario() {
   const [guardandoEdit, setGuardandoEdit] = useState(false)
   const [confirmApagar, setConfirmApagar] = useState(null)
   const [tituloRelatorio, setTituloRelatorio] = useState('')
+  const [ultimoSalvo, setUltimoSalvo] = useState(null)
 
   const getFolder = useCallback(async () => {
     let fid = folderId
@@ -1246,18 +1247,19 @@ function TabInventario() {
       if (!fid) throw new Error('Pasta não encontrada')
       const agora = new Date().toLocaleString('pt-PT', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })
       const titulo = tituloRelatorio.trim() || `📋 Inventário — ${agora}`
-      const linhas = textoRelatorio.split('\n')
+      const linhas = textoRelatorio.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n')
       const children = linhas.map(l => ({
         object: 'block', type: 'paragraph',
         paragraph: { rich_text: [{ type: 'text', text: { content: l.slice(0, 1900) } }] }
       }))
-      await nPost('pages', {
+      const novaPagina = await nPost('pages', {
         parent: { page_id: fid },
         icon: { type: 'emoji', emoji: '📋' },
         properties: { title: { title: [{ type: 'text', text: { content: titulo } }] } },
         children: children.slice(0, 100)
       })
       await loadHistory(fid)
+      if (novaPagina?.id) { setUltimoSalvo(novaPagina.id); setAberto(novaPagina.id) }
       setTextoRelatorio('')
       setTituloRelatorio('')
     } catch(err) { alert('Erro ao guardar: ' + err.message) }
@@ -1336,9 +1338,9 @@ function TabInventario() {
       <div style={S.card}>
         <div style={S.cardTitle}>📋 Inventário — Rota 606</div>
         <div style={{color:C.muted,fontSize:'13px',marginBottom:'12px'}}>Cole aqui o relatório de inventário gerado pelo Claude e guarde no Notion.</div>
-        <input type="text" value={tituloRelatorio} onChange={e=>setTituloRelatorio(e.target.value)}
+        <textarea value={tituloRelatorio} onChange={e=>setTituloRelatorio(e.target.value)} rows={3}
           placeholder="Título (ex: Inventário 29/06/2026)"
-          style={{...S.input,marginBottom:'8px'}}/>
+          style={{...S.input,resize:'none',fontFamily:'inherit',lineHeight:1.5,marginBottom:'8px'}}/>
         <textarea value={textoRelatorio} onChange={e=>setTextoRelatorio(e.target.value)} rows={8}
           placeholder="Cole aqui o relatório de inventário…"
           style={{...S.input,resize:'vertical',fontFamily:'inherit',lineHeight:1.6,marginBottom:'10px'}}/>
@@ -1347,24 +1349,32 @@ function TabInventario() {
           {guardando ? 'A guardar no Notion…' : '💾 Salvar no Notion'}
         </button>
       </div>
-      <div style={S.card}>
-        <div style={S.cardTitle}>🗂️ Histórico de Inventários</div>
+      <div style={{...S.card,border:`1px solid ${C.accent}44`,background:`${C.accent}08`}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'12px'}}>
+          <div style={{...S.cardTitle,marginBottom:0,color:C.accent}}>🗂️ Inventários Guardados no Notion</div>
+          {history.length > 0 && <span style={S.badge(C.accent)}>{history.length}</span>}
+        </div>
         {carregandoHist ? (
-          <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'20px'}}>A carregar histórico…</div>
+          <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'20px'}}>A carregar…</div>
         ) : history.length === 0 ? (
-          <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'20px'}}>Sem inventários guardados ainda</div>
+          <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'20px'}}>Sem inventários guardados ainda.<br/>Cole um relatório acima e clique em Salvar.</div>
         ) : history.map(item => (
-          <div key={item.id} style={{borderBottom:`1px solid ${C.border}`}}>
-            <div style={{display:'flex',alignItems:'center',gap:'8px',padding:'10px 0'}}>
-              <span style={{flex:1,color:C.text,fontSize:'13px',cursor:'pointer'}} onClick={()=>abrirItem(item.id)}>{item.title}</span>
-              <button onClick={()=>{abrirItem(item.id);setTimeout(()=>setEditando({pageId:item.id}),300)}}
-                style={{background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'4px',padding:'4px 8px',cursor:'pointer',fontSize:'11px'}}>✏️</button>
-              <button onClick={()=>setConfirmApagar(item.id)}
-                style={{background:'transparent',border:'1px solid #F8514944',color:C.danger,borderRadius:'4px',padding:'4px 8px',cursor:'pointer',fontSize:'11px'}}>🗑</button>
-              <span style={{color:C.muted,fontSize:'12px',flexShrink:0,cursor:'pointer'}} onClick={()=>abrirItem(item.id)}>{aberto===item.id?'▲':'▼'}</span>
+          <div key={item.id} style={{borderBottom:`1px solid ${C.border}`,background:ultimoSalvo===item.id?`${C.accent}0a`:'transparent',borderRadius:'6px',marginBottom:'2px',transition:'background 0.3s'}}>
+            <div style={{display:'flex',alignItems:'flex-start',gap:'8px',padding:'10px 6px',cursor:'pointer'}} onClick={()=>abrirItem(item.id)}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:aberto===item.id?700:500,color:aberto===item.id?C.accent:C.text,fontSize:'13px',lineHeight:1.5,whiteSpace:'pre-wrap',wordBreak:'break-word'}}>{item.title}</div>
+                {ultimoSalvo===item.id && <div style={{color:C.accent,fontSize:'10px',marginTop:'3px',fontWeight:600}}>✅ Guardado agora</div>}
+              </div>
+              <div style={{display:'flex',gap:'4px',flexShrink:0,marginTop:'2px'}}>
+                <button onClick={e=>{e.stopPropagation();abrirItem(item.id).then(()=>{if(textoAberto)setEditando({pageId:item.id})})}}
+                  style={{background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'4px',padding:'4px 8px',cursor:'pointer',fontSize:'11px'}}>✏️</button>
+                <button onClick={e=>{e.stopPropagation();setConfirmApagar(item.id)}}
+                  style={{background:'transparent',border:'1px solid #F8514944',color:C.danger,borderRadius:'4px',padding:'4px 8px',cursor:'pointer',fontSize:'11px'}}>🗑</button>
+                <span style={{color:C.muted,fontSize:'12px',padding:'4px'}}>{aberto===item.id?'▲':'▼'}</span>
+              </div>
             </div>
             {aberto === item.id && (
-              <div style={{background:C.bg,borderRadius:'8px',padding:'12px',marginBottom:'10px'}}>
+              <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:'8px',padding:'14px',marginBottom:'10px',marginTop:'4px'}}>
                 {carregandoTexto && !textoAberto ? (
                   <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'12px'}}>A carregar…</div>
                 ) : textoAberto ? (
@@ -1373,7 +1383,7 @@ function TabInventario() {
                       <button onClick={()=>{setEditTemp(textoAberto.texto);setEditando({pageId:item.id})}}
                         style={{background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'4px',padding:'4px 10px',cursor:'pointer',fontSize:'11px'}}>✏️ Editar</button>
                     </div>
-                    <pre style={{color:C.text,fontSize:'13px',lineHeight:1.7,whiteSpace:'pre-wrap',wordBreak:'break-word',margin:0,fontFamily:'inherit'}}>{textoAberto.texto}</pre>
+                    <pre style={{color:C.text,fontSize:'13px',lineHeight:1.8,whiteSpace:'pre-wrap',wordBreak:'break-word',margin:0,fontFamily:'inherit'}}>{textoAberto.texto}</pre>
                   </>
                 ) : null}
               </div>
@@ -1596,6 +1606,7 @@ function TabGestaoRota() {
   const [guardandoEdit, setGuardandoEdit] = useState(false)
   const [confirmApagar, setConfirmApagar] = useState(null)
   const [tituloRelatorio, setTituloRelatorio] = useState('')
+  const [ultimoSalvo, setUltimoSalvo] = useState(null)
 
   const getFolder = useCallback(async () => {
     let fid = folderId
@@ -1634,18 +1645,19 @@ function TabGestaoRota() {
       if (!fid) throw new Error('Pasta não encontrada')
       const agora = new Date().toLocaleString('pt-PT', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })
       const titulo = tituloRelatorio.trim() || `📊 Gestão Rota — ${agora}`
-      const linhas = textoRelatorio.split('\n')
+      const linhas = textoRelatorio.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n')
       const children = linhas.map(l => ({
         object: 'block', type: 'paragraph',
         paragraph: { rich_text: [{ type: 'text', text: { content: l.slice(0, 1900) } }] }
       }))
-      await nPost('pages', {
+      const novaPagina = await nPost('pages', {
         parent: { page_id: fid },
         icon: { type: 'emoji', emoji: '📊' },
         properties: { title: { title: [{ type: 'text', text: { content: titulo } }] } },
         children: children.slice(0, 100)
       })
       await loadHistory(fid)
+      if (novaPagina?.id) { setUltimoSalvo(novaPagina.id); setAberto(novaPagina.id) }
       setTextoRelatorio('')
       setTituloRelatorio('')
     } catch(err) { alert('Erro ao guardar: ' + err.message) }
@@ -1724,9 +1736,9 @@ function TabGestaoRota() {
       <div style={S.card}>
         <div style={S.cardTitle}>📊 Gestão da Rota 606</div>
         <div style={{color:C.muted,fontSize:'13px',marginBottom:'12px'}}>Cole aqui o relatório de gestão de rota gerado pelo Claude e guarde no Notion.</div>
-        <input type="text" value={tituloRelatorio} onChange={e=>setTituloRelatorio(e.target.value)}
+        <textarea value={tituloRelatorio} onChange={e=>setTituloRelatorio(e.target.value)} rows={3}
           placeholder="Título (ex: Gestão Rota — Semana 26)"
-          style={{...S.input,marginBottom:'8px'}}/>
+          style={{...S.input,resize:'none',fontFamily:'inherit',lineHeight:1.5,marginBottom:'8px'}}/>
         <textarea value={textoRelatorio} onChange={e=>setTextoRelatorio(e.target.value)} rows={8}
           placeholder="Cole aqui o relatório de gestão de rota…"
           style={{...S.input,resize:'vertical',fontFamily:'inherit',lineHeight:1.6,marginBottom:'10px'}}/>
@@ -1735,24 +1747,32 @@ function TabGestaoRota() {
           {guardando ? 'A guardar no Notion…' : '💾 Salvar no Notion'}
         </button>
       </div>
-      <div style={S.card}>
-        <div style={S.cardTitle}>🗂️ Histórico de Análises</div>
+      <div style={{...S.card,border:`1px solid ${C.accent}44`,background:`${C.accent}08`}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'12px'}}>
+          <div style={{...S.cardTitle,marginBottom:0,color:C.accent}}>🗂️ Análises Guardadas no Notion</div>
+          {history.length > 0 && <span style={S.badge(C.accent)}>{history.length}</span>}
+        </div>
         {carregandoHist ? (
-          <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'20px'}}>A carregar histórico…</div>
+          <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'20px'}}>A carregar…</div>
         ) : history.length === 0 ? (
-          <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'20px'}}>Sem análises guardadas ainda</div>
+          <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'20px'}}>Sem análises guardadas ainda.<br/>Cole um relatório acima e clique em Salvar.</div>
         ) : history.map(item => (
-          <div key={item.id} style={{borderBottom:`1px solid ${C.border}`}}>
-            <div style={{display:'flex',alignItems:'center',gap:'8px',padding:'10px 0'}}>
-              <span style={{flex:1,color:C.text,fontSize:'13px',cursor:'pointer'}} onClick={()=>abrirItem(item.id)}>{item.title}</span>
-              <button onClick={()=>{abrirItem(item.id);setTimeout(()=>{if(textoAberto)setEditando({pageId:item.id})},400)}}
-                style={{background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'4px',padding:'4px 8px',cursor:'pointer',fontSize:'11px'}}>✏️</button>
-              <button onClick={()=>setConfirmApagar(item.id)}
-                style={{background:'transparent',border:'1px solid #F8514944',color:C.danger,borderRadius:'4px',padding:'4px 8px',cursor:'pointer',fontSize:'11px'}}>🗑</button>
-              <span style={{color:C.muted,fontSize:'12px',flexShrink:0,cursor:'pointer'}} onClick={()=>abrirItem(item.id)}>{aberto===item.id?'▲':'▼'}</span>
+          <div key={item.id} style={{borderBottom:`1px solid ${C.border}`,background:ultimoSalvo===item.id?`${C.accent}0a`:'transparent',borderRadius:'6px',marginBottom:'2px',transition:'background 0.3s'}}>
+            <div style={{display:'flex',alignItems:'flex-start',gap:'8px',padding:'10px 6px',cursor:'pointer'}} onClick={()=>abrirItem(item.id)}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:aberto===item.id?700:500,color:aberto===item.id?C.accent:C.text,fontSize:'13px',lineHeight:1.5,whiteSpace:'pre-wrap',wordBreak:'break-word'}}>{item.title}</div>
+                {ultimoSalvo===item.id && <div style={{color:C.accent,fontSize:'10px',marginTop:'3px',fontWeight:600}}>✅ Guardado agora</div>}
+              </div>
+              <div style={{display:'flex',gap:'4px',flexShrink:0,marginTop:'2px'}}>
+                <button onClick={e=>{e.stopPropagation();abrirItem(item.id).then(()=>{if(textoAberto)setEditando({pageId:item.id})})}}
+                  style={{background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'4px',padding:'4px 8px',cursor:'pointer',fontSize:'11px'}}>✏️</button>
+                <button onClick={e=>{e.stopPropagation();setConfirmApagar(item.id)}}
+                  style={{background:'transparent',border:'1px solid #F8514944',color:C.danger,borderRadius:'4px',padding:'4px 8px',cursor:'pointer',fontSize:'11px'}}>🗑</button>
+                <span style={{color:C.muted,fontSize:'12px',padding:'4px'}}>{aberto===item.id?'▲':'▼'}</span>
+              </div>
             </div>
             {aberto === item.id && (
-              <div style={{background:C.bg,borderRadius:'8px',padding:'12px',marginBottom:'10px'}}>
+              <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:'8px',padding:'14px',marginBottom:'10px',marginTop:'4px'}}>
                 {carregandoTexto && !textoAberto ? (
                   <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'12px'}}>A carregar…</div>
                 ) : textoAberto ? (
@@ -1761,7 +1781,7 @@ function TabGestaoRota() {
                       <button onClick={()=>{setEditTemp(textoAberto.texto);setEditando({pageId:item.id})}}
                         style={{background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'4px',padding:'4px 10px',cursor:'pointer',fontSize:'11px'}}>✏️ Editar</button>
                     </div>
-                    <pre style={{color:C.text,fontSize:'13px',lineHeight:1.7,whiteSpace:'pre-wrap',wordBreak:'break-word',margin:0,fontFamily:'inherit'}}>{textoAberto.texto}</pre>
+                    <pre style={{color:C.text,fontSize:'13px',lineHeight:1.8,whiteSpace:'pre-wrap',wordBreak:'break-word',margin:0,fontFamily:'inherit'}}>{textoAberto.texto}</pre>
                   </>
                 ) : null}
               </div>
