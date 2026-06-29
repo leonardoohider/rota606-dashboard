@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 
 const PAGE_IDS = {
+  rotaRoot:   '37493fb1601f8115814be9b61144a3ef',
   assistenciaTecnica: '38793fb1601f81c4b22adee0f464d232',
   frescos:    '38893fb1601f81ebbd7ac56637d8e95a',
   pdv806477:  '37493fb1601f80649eeeffcd6d4c3772',
@@ -1095,194 +1096,295 @@ const TODAS_MAQUINAS = [
 
 // ── ABA INVENTÁRIO ────────────────────────────────────────────
 function TabInventario() {
-  const [estado, setEstado] = useState('idle') // idle | loading | resultado | erro
-  const [resultado, setResultado] = useState(null)
-  const [erro, setErro] = useState('')
+  const [folderId, setFolderId] = useState(() => { try { return localStorage.getItem('inv_folder_id') || null } catch { return null } })
+  const [history, setHistory] = useState([])
+  const [aberto, setAberto] = useState(null)
+  const [analiseAberta, setAnaliseAberta] = useState(null)
+  const [carregandoHist, setCarregandoHist] = useState(false)
+  const [carregandoAnal, setCarregandoAnal] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const [nomeFile, setNomeFile] = useState('')
+  const [erro, setErro] = useState('')
+  const [editando, setEditando] = useState(null)
+  const [editTemp, setEditTemp] = useState('')
+  const [guardandoEdit, setGuardandoEdit] = useState(false)
+  const [confirmApagar, setConfirmApagar] = useState(null)
 
-  const processarPDF = async (file) => {
-    setEstado('loading')
-    setNomeFile(file.name)
-    setResultado(null)
-    setErro('')
+  const getFolder = useCallback(async () => {
+    let fid = folderId
+    if (!fid) {
+      try {
+        const ch = await nGet(`blocks/${PAGE_IDS.rotaRoot}/children`, { page_size: 100 })
+        const ex = ch.results?.find(b => b.type === 'child_page' && b.child_page?.title === '📋 Inventários — Rota 606')
+        fid = ex ? ex.id : (await nPost('pages', {
+          parent: { page_id: PAGE_IDS.rotaRoot },
+          icon: { type: 'emoji', emoji: '📋' },
+          properties: { title: { title: [{ type: 'text', text: { content: '📋 Inventários — Rota 606' } }] } }
+        })).id
+        localStorage.setItem('inv_folder_id', fid)
+        setFolderId(fid)
+      } catch { return null }
+    }
+    return fid
+  }, [folderId])
 
+  const loadHistory = useCallback(async (fid) => {
+    if (!fid) return
+    setCarregandoHist(true)
     try {
-      // Converter PDF para base64
+      const res = await nGet(`blocks/${fid}/children`, { page_size: 50 })
+      setHistory((res.results || []).filter(b => b.type === 'child_page').map(b => ({ id: b.id, title: b.child_page?.title || 'Análise' })).reverse())
+    } finally { setCarregandoHist(false) }
+  }, [])
+
+  useEffect(() => { getFolder().then(f => loadHistory(f)) }, [])
+
+  const processarImagem = async (file) => {
+    if (uploading) return
+    setUploading(true)
+    setNomeFile(file.name)
+    setErro('')
+    try {
       const base64 = await new Promise((res, rej) => {
-        const reader = new FileReader()
-        reader.onload = () => res(reader.result.split(',')[1])
-        reader.onerror = () => rej(new Error('Erro ao ler ficheiro'))
-        reader.readAsDataURL(file)
+        const r = new FileReader()
+        r.onload = () => res(r.result.split(',')[1])
+        r.onerror = () => rej(new Error('Erro ao ler imagem'))
+        r.readAsDataURL(file)
       })
-
       const listaMaquinas = TODAS_MAQUINAS.map(m => `${m.pdv} (${m.cliente} — ${m.modelo})`).join('\n')
-
-      const response = await fetch('/api/anthropic', {
+      const apiRes = await fetch('/api/anthropic', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          pdfBase64: base64,
-          maxTokens: 2000,
-          prompt: `És um assistente de gestão de rota de máquinas vending.
+          imageBase64: base64,
+          mimeType: file.type || 'image/jpeg',
+          maxTokens: 4000,
+          prompt: `És um assistente especializado em gestão de rota de máquinas vending da Rota 606 (mybreak by Delta Cafés), Marinha Grande, Portugal.
 
-Esta é a lista COMPLETA de máquinas da Rota 606:
+Lista COMPLETA das máquinas da Rota 606:
 ${listaMaquinas}
 
-Analisa o ficheiro PDF enviado (relatório de inventário/levantamento) e identifica quais máquinas JÁ foram feitas/registadas no PDF.
+Analisa esta IMAGEM com MÁXIMA PRECISÃO. É uma fotografia de um relatório de inventário/levantamento da rota.
 
-Responde APENAS em JSON válido, sem texto antes ou depois, neste formato exato:
+Identifica quais máquinas (PDVs) já foram registadas/feitas e quais ainda estão em falta.
+
+Responde APENAS em JSON válido, sem texto antes ou depois:
 {
-  "feitas": ["811865", "811866"],
-  "em_falta": ["809403", "806066"],
-  "total_feitas": 10,
-  "total_em_falta": 30,
-  "resumo": "Breve descrição do que encontraste no PDF"
+  "feitas": ["811865"],
+  "em_falta": ["809403"],
+  "total_feitas": 0,
+  "total_em_falta": 0,
+  "resumo": "O que encontraste na imagem (2-3 frases claras)",
+  "raciocinio": "Explicação detalhada de como analisaste a imagem, o que viste, como identificaste cada PDV e como chegaste a estas conclusões"
 }`
         })
       })
-
-      if (!response.ok) {
-        const errText = await response.text()
-        throw new Error(`Erro da API (${response.status}): ${errText.slice(0,200)}`)
-      }
-      const data = await response.json()
-      if (data.error) throw new Error(data.error)
-      const texto = data.text || ''
-      if (!texto) throw new Error('Resposta vazia da API.')
-      const clean = texto.replace(/```json|```/g, '').trim()
+      if (!apiRes.ok) throw new Error(`Erro API: ${apiRes.status}`)
+      const apiData = await apiRes.json()
+      if (apiData.error) throw new Error(apiData.error)
+      const clean = (apiData.text || '').replace(/```json|```/g, '').trim()
       const parsed = JSON.parse(clean)
-
-      // Enriquecer com dados das máquinas
-      const feitas = parsed.feitas.map(pdv => TODAS_MAQUINAS.find(m => m.pdv === pdv)).filter(Boolean)
-      const emFalta = parsed.em_falta.map(pdv => TODAS_MAQUINAS.find(m => m.pdv === pdv)).filter(Boolean)
-
-      setResultado({ ...parsed, feitasDetalhes: feitas, emFaltaDetalhes: emFalta })
-      setEstado('resultado')
-    } catch(err) {
-      setErro('Erro ao processar o ficheiro: ' + err.message)
-      setEstado('erro')
-    }
+      const fid = await getFolder()
+      if (!fid) throw new Error('Erro ao aceder pasta no Notion')
+      const agora = new Date().toLocaleString('pt-PT', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })
+      const jsonStr = JSON.stringify(parsed)
+      const chunks = []
+      for (let i = 0; i < jsonStr.length; i += 1900) chunks.push({ type: 'text', text: { content: jsonStr.slice(i, i+1900) } })
+      await nPost('pages', {
+        parent: { page_id: fid },
+        icon: { type: 'emoji', emoji: '📋' },
+        properties: { title: { title: [{ type: 'text', text: { content: `📋 Inventário — ${agora}` } }] } },
+        children: [
+          { object:'block', type:'paragraph', paragraph:{ rich_text:[{ type:'text', text:{ content: parsed.resumo || '' } }] } },
+          { object:'block', type:'paragraph', paragraph:{ rich_text:[{ type:'text', text:{ content: parsed.raciocinio || '' } }] } },
+          { object:'block', type:'code', code:{ rich_text: chunks, language:'json' } }
+        ]
+      })
+      await loadHistory(fid)
+    } catch(err) { setErro('Erro: ' + err.message) }
+    finally { setUploading(false); setNomeFile('') }
   }
 
-  const onFileChange = (e) => {
-    const file = e.target.files?.[0]
-    if (file && file.type === 'application/pdf') processarPDF(file)
-    else if (file) setErro('Por favor envia um ficheiro PDF.')
+  const abrirAnalise = async (pageId) => {
+    if (aberto === pageId) { setAberto(null); setAnaliseAberta(null); return }
+    setAberto(pageId)
+    setCarregandoAnal(true)
+    setAnaliseAberta(null)
+    try {
+      const res = await nGet(`blocks/${pageId}/children`, { page_size: 50 })
+      const blocks = res.results || []
+      const paras = blocks.filter(b => b.type === 'paragraph')
+      const codeB = blocks.find(b => b.type === 'code')
+      const resumo = paras[0]?.paragraph?.rich_text?.map(t=>t.plain_text).join('') || ''
+      const raciocinio = paras[1]?.paragraph?.rich_text?.map(t=>t.plain_text).join('') || ''
+      const resumoBlockId = paras[0]?.id || null
+      let json = null
+      if (codeB) { try { json = JSON.parse(codeB.code.rich_text.map(t=>t.plain_text).join('')) } catch {} }
+      setAnaliseAberta({ json, resumo, raciocinio, resumoBlockId })
+    } catch { setAnaliseAberta({ erro: 'Erro ao carregar análise.' }) }
+    finally { setCarregandoAnal(false) }
   }
 
-  // Agrupar por cliente
-  function agruparPorCliente(maquinas) {
-    return maquinas.reduce((acc, m) => {
-      if (!acc[m.cliente]) acc[m.cliente] = []
-      acc[m.cliente].push(m)
-      return acc
-    }, {})
+  const guardarEdit = async () => {
+    if (!editando) return
+    setGuardandoEdit(true)
+    try {
+      await nPatch(`blocks/${editando.blockId}`, { paragraph: { rich_text: [{ type:'text', text:{ content: editTemp } }] } })
+      setAnaliseAberta(prev => ({ ...prev, resumo: editTemp }))
+      setEditando(null)
+    } finally { setGuardandoEdit(false) }
+  }
+
+  const apagarAnalise = async (pageId) => {
+    try { await nPatch(`pages/${pageId}`, { archived: true }) } catch {}
+    setHistory(prev => prev.filter(h => h.id !== pageId))
+    if (aberto === pageId) { setAberto(null); setAnaliseAberta(null) }
+    setConfirmApagar(null)
+  }
+
+  function agruparPorCliente(pdvs) {
+    const maquinas = pdvs.map(pdv => TODAS_MAQUINAS.find(m => m.pdv === pdv)).filter(Boolean)
+    return maquinas.reduce((acc, m) => { if (!acc[m.cliente]) acc[m.cliente] = []; acc[m.cliente].push(m); return acc }, {})
   }
 
   return (
     <div>
+      {/* Edit modal */}
+      {editando && (
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'#000000bb',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
+          <div style={{background:C.cards,border:`1px solid ${C.border}`,borderRadius:'12px',padding:'20px',maxWidth:'400px',width:'100%'}}>
+            <div style={{fontWeight:600,color:C.text,marginBottom:'10px'}}>✏️ Editar Resumo</div>
+            <textarea value={editTemp} onChange={e=>setEditTemp(e.target.value)} rows={5}
+              style={{width:'100%',background:C.bg,border:`1px solid #30363D`,borderRadius:'6px',color:C.text,padding:'10px',fontSize:'13px',resize:'vertical',boxSizing:'border-box',fontFamily:'inherit',marginBottom:'10px'}}/>
+            <div style={{display:'flex',gap:'8px'}}>
+              <button onClick={()=>setEditando(null)} style={{flex:1,background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'6px',padding:'10px',cursor:'pointer',fontSize:'13px'}}>Cancelar</button>
+              <button onClick={guardarEdit} disabled={guardandoEdit} style={{flex:1,background:C.accent,color:'#0D1117',border:'none',borderRadius:'6px',padding:'10px',fontWeight:700,cursor:'pointer',fontSize:'13px'}}>
+                {guardandoEdit ? 'A guardar…' : '💾 Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm */}
+      {confirmApagar && (
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'#000000bb',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
+          <div style={{background:C.cards,border:`1px solid #F8514944`,borderRadius:'12px',padding:'20px',maxWidth:'300px',width:'100%',textAlign:'center'}}>
+            <div style={{fontSize:'28px',marginBottom:'8px'}}>🗑️</div>
+            <div style={{fontWeight:600,color:C.text,marginBottom:'6px'}}>Apagar análise?</div>
+            <div style={{color:C.muted,fontSize:'13px',marginBottom:'16px'}}>Esta análise será apagada do Notion e do dashboard.</div>
+            <div style={{display:'flex',gap:'8px'}}>
+              <button onClick={()=>setConfirmApagar(null)} style={{flex:1,background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'6px',padding:'10px',cursor:'pointer',fontSize:'13px'}}>Cancelar</button>
+              <button onClick={()=>apagarAnalise(confirmApagar)} style={{flex:1,background:C.danger,color:'#fff',border:'none',borderRadius:'6px',padding:'10px',fontWeight:700,cursor:'pointer',fontSize:'13px'}}>Apagar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Upload */}
       <div style={S.card}>
         <div style={S.cardTitle}>📋 Inventário e Levantamento — Rota 606</div>
-        <div style={{color:C.muted,fontSize:'13px',marginBottom:'16px'}}>
-          Quais máquinas ainda faltam fazer levantamento?
-        </div>
-
-        <label style={{
-          display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-          border:`2px dashed ${C.accent}44`, borderRadius:'10px', padding:'32px 16px',
-          cursor:'pointer', background:`${C.accent}08`, transition:'all 0.2s'
-        }}>
-          <input type="file" accept=".pdf" onChange={onFileChange} style={{display:'none'}}/>
-          <div style={{fontSize:'32px',marginBottom:'8px'}}>📄</div>
-          <div style={{fontWeight:600,color:C.accent,fontSize:'14px'}}>Clica para enviar o PDF</div>
-          <div style={{color:C.muted,fontSize:'12px',marginTop:'4px'}}>Ficheiro de inventário / levantamento</div>
+        <div style={{color:C.muted,fontSize:'13px',marginBottom:'14px'}}>Tira uma foto ao relatório de inventário e o Claude analisa automaticamente.</div>
+        <label style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',border:`2px dashed ${C.accent}44`,borderRadius:'10px',padding:'28px 16px',cursor:uploading?'default':'pointer',background:`${C.accent}08`}}>
+          <input type="file" accept="image/*" onChange={e=>{const f=e.target.files?.[0];if(f)processarImagem(f)}} style={{display:'none'}} disabled={uploading}/>
+          {uploading ? (
+            <>
+              <div style={{fontSize:'28px',marginBottom:'8px'}}>🔍</div>
+              <div style={{fontWeight:600,color:C.accent,fontSize:'14px'}}>A analisar imagem…</div>
+              <div style={{color:C.muted,fontSize:'12px',marginTop:'4px'}}>Claude está a identificar as máquinas da rota</div>
+              {nomeFile && <div style={{color:C.muted,fontSize:'11px',marginTop:'6px'}}>📷 {nomeFile}</div>}
+            </>
+          ) : (
+            <>
+              <div style={{fontSize:'32px',marginBottom:'8px'}}>📷</div>
+              <div style={{fontWeight:600,color:C.accent,fontSize:'14px'}}>Clica para enviar imagem</div>
+              <div style={{color:C.muted,fontSize:'12px',marginTop:'4px'}}>Foto do relatório de inventário (JPG, PNG, WEBP)</div>
+            </>
+          )}
         </label>
-
-        {nomeFile && estado !== 'idle' && (
-          <div style={{color:C.muted,fontSize:'12px',marginTop:'8px',textAlign:'center'}}>📎 {nomeFile}</div>
-        )}
+        {erro && <div style={{color:C.danger,fontSize:'13px',marginTop:'10px',padding:'8px',background:`${C.danger}11`,borderRadius:'6px',border:`1px solid ${C.danger}44`}}>{erro}</div>}
       </div>
 
-      {/* Loading */}
-      {estado === 'loading' && (
-        <div style={{...S.card,textAlign:'center',padding:'32px'}}>
-          <div style={{fontSize:'32px',marginBottom:'12px'}}>🔍</div>
-          <div style={{fontWeight:600,color:C.text,marginBottom:'8px'}}>A analisar o ficheiro…</div>
-          <div style={{color:C.muted,fontSize:'13px'}}>A IA está a ler o PDF e a comparar com as máquinas da Rota 606</div>
-        </div>
-      )}
-
-      {/* Erro */}
-      {estado === 'erro' && (
-        <div style={{...S.card,border:`1px solid ${C.danger}44`,background:`${C.danger}11`}}>
-          <div style={{color:C.danger,fontWeight:600,marginBottom:'4px'}}>❌ Erro</div>
-          <div style={{color:C.muted,fontSize:'13px'}}>{erro}</div>
-        </div>
-      )}
-
-      {/* Resultado */}
-      {estado === 'resultado' && resultado && (
-        <>
-          {/* Resumo */}
-          <div style={{...S.card,borderColor:`${C.accent}44`}}>
-            <div style={S.cardTitle}>📊 Resumo da Análise</div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'12px'}}>
-              <div style={{background:`${C.accent}15`,borderRadius:'8px',padding:'12px',textAlign:'center'}}>
-                <div style={{fontSize:'28px',fontWeight:700,color:C.accent}}>{resultado.total_feitas}</div>
-                <div style={{color:C.muted,fontSize:'12px'}}>✅ Feitas</div>
-              </div>
-              <div style={{background:`${C.danger}15`,borderRadius:'8px',padding:'12px',textAlign:'center'}}>
-                <div style={{fontSize:'28px',fontWeight:700,color:C.danger}}>{resultado.total_em_falta}</div>
-                <div style={{color:C.muted,fontSize:'12px'}}>⏳ Em falta</div>
-              </div>
+      {/* Histórico */}
+      <div style={S.card}>
+        <div style={S.cardTitle}>🗂️ Histórico de Análises</div>
+        {carregandoHist ? (
+          <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'20px'}}>A carregar histórico…</div>
+        ) : history.length === 0 ? (
+          <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'20px'}}>Sem análises guardadas ainda</div>
+        ) : history.map(item => (
+          <div key={item.id} style={{borderBottom:`1px solid ${C.border}`}}>
+            <div style={{display:'flex',alignItems:'center',gap:'8px',padding:'10px 0',cursor:'pointer'}} onClick={()=>abrirAnalise(item.id)}>
+              <span style={{flex:1,color:C.text,fontSize:'13px'}}>{item.title}</span>
+              <button onClick={e=>{e.stopPropagation();setConfirmApagar(item.id)}}
+                style={{background:'transparent',border:`1px solid #F8514944`,color:C.danger,borderRadius:'4px',padding:'4px 8px',cursor:'pointer',fontSize:'11px'}}>🗑</button>
+              <span style={{color:C.muted,fontSize:'12px',flexShrink:0}}>{aberto===item.id?'▲':'▼'}</span>
             </div>
-            {resultado.resumo && (
-              <div style={{color:C.muted,fontSize:'13px',background:C.bg,padding:'10px',borderRadius:'6px'}}>{resultado.resumo}</div>
+            {aberto === item.id && (
+              <div style={{background:C.bg,borderRadius:'8px',padding:'12px',marginBottom:'10px'}}>
+                {carregandoAnal && !analiseAberta ? (
+                  <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'12px'}}>A carregar…</div>
+                ) : analiseAberta?.erro ? (
+                  <div style={{color:C.danger,fontSize:'13px'}}>{analiseAberta.erro}</div>
+                ) : analiseAberta ? (
+                  <>
+                    <div style={{display:'flex',justifyContent:'flex-end',marginBottom:'8px'}}>
+                      <button onClick={()=>{setEditando({blockId:analiseAberta.resumoBlockId});setEditTemp(analiseAberta.resumo)}}
+                        style={{background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'4px',padding:'4px 10px',cursor:'pointer',fontSize:'11px'}}>✏️ Editar resumo</button>
+                    </div>
+                    <div style={{color:C.muted,fontSize:'11px',fontWeight:600,textTransform:'uppercase',marginBottom:'4px'}}>Resumo</div>
+                    <div style={{color:C.text,fontSize:'13px',background:C.cards,padding:'10px',borderRadius:'6px',lineHeight:1.6,marginBottom:'10px'}}>{analiseAberta.resumo||'—'}</div>
+                    {analiseAberta.raciocinio && (
+                      <>
+                        <div style={{color:C.muted,fontSize:'11px',fontWeight:600,textTransform:'uppercase',marginBottom:'4px'}}>Raciocínio da IA</div>
+                        <div style={{color:C.muted,fontSize:'12px',background:C.cards,padding:'10px',borderRadius:'6px',lineHeight:1.6,borderLeft:`3px solid ${C.accent}`,marginBottom:'10px'}}>{analiseAberta.raciocinio}</div>
+                      </>
+                    )}
+                    {analiseAberta.json && (
+                      <>
+                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'10px'}}>
+                          <div style={{background:`${C.accent}15`,borderRadius:'8px',padding:'10px',textAlign:'center'}}>
+                            <div style={{fontSize:'22px',fontWeight:700,color:C.accent}}>{analiseAberta.json.total_feitas}</div>
+                            <div style={{color:C.muted,fontSize:'11px'}}>✅ Feitas</div>
+                          </div>
+                          <div style={{background:`${C.danger}15`,borderRadius:'8px',padding:'10px',textAlign:'center'}}>
+                            <div style={{fontSize:'22px',fontWeight:700,color:C.danger}}>{analiseAberta.json.total_em_falta}</div>
+                            <div style={{color:C.muted,fontSize:'11px'}}>⏳ Em falta</div>
+                          </div>
+                        </div>
+                        {analiseAberta.json.em_falta?.length > 0 && (
+                          <div style={{marginBottom:'10px'}}>
+                            <div style={{color:C.danger,fontSize:'12px',fontWeight:600,marginBottom:'6px'}}>⏳ Máquinas em falta</div>
+                            {Object.entries(agruparPorCliente(analiseAberta.json.em_falta)).map(([cliente,maqList])=>(
+                              <div key={cliente} style={{marginBottom:'8px'}}>
+                                <div style={{color:C.accent,fontSize:'12px',fontWeight:600,marginBottom:'3px'}}>{cliente}</div>
+                                {maqList.map((m,i)=>(
+                                  <div key={i} style={{display:'flex',gap:'6px',alignItems:'center',padding:'2px 0'}}>
+                                    <span style={{...S.badge(C.danger)}}>{m.pdv}</span>
+                                    <span style={{color:C.text,fontSize:'12px'}}>{m.modelo}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {analiseAberta.json.feitas?.length > 0 && (
+                          <div>
+                            <div style={{color:C.accent,fontSize:'12px',fontWeight:600,marginBottom:'4px'}}>✅ Feitas</div>
+                            <div>{analiseAberta.json.feitas.map(pdv=>TODAS_MAQUINAS.find(m=>m.pdv===pdv)).filter(Boolean).map((m,i)=>(
+                              <span key={i} style={{...S.tag,background:`${C.accent}15`,color:C.accent,margin:'2px'}}>{m.pdv}</span>
+                            ))}</div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </>
+                ) : null}
+              </div>
             )}
           </div>
-
-          {/* Máquinas em falta */}
-          {resultado.emFaltaDetalhes?.length > 0 && (
-            <div style={S.card}>
-              <div style={{...S.cardTitle,color:C.danger}}>⏳ Máquinas em Falta ({resultado.emFaltaDetalhes.length})</div>
-              {Object.entries(agruparPorCliente(resultado.emFaltaDetalhes)).map(([cliente, maquinas]) => (
-                <div key={cliente} style={{marginBottom:'12px'}}>
-                  <div style={{color:C.accent,fontWeight:600,fontSize:'13px',marginBottom:'6px'}}>{cliente}</div>
-                  {maquinas.map((m,i) => (
-                    <div key={i} style={{display:'flex',gap:'8px',alignItems:'center',padding:'5px 0',borderBottom:`1px solid ${C.border}`}}>
-                      <span style={{...S.badge(C.danger)}}>{m.pdv}</span>
-                      <span style={{color:C.text,fontSize:'13px'}}>{m.modelo}</span>
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Máquinas feitas */}
-          {resultado.feitasDetalhes?.length > 0 && (
-            <div style={S.card}>
-              <div style={{...S.cardTitle,color:C.accent}}>✅ Já Feitas ({resultado.feitasDetalhes.length})</div>
-              {Object.entries(agruparPorCliente(resultado.feitasDetalhes)).map(([cliente, maquinas]) => (
-                <div key={cliente} style={{marginBottom:'10px'}}>
-                  <div style={{color:C.muted,fontWeight:600,fontSize:'12px',marginBottom:'4px'}}>{cliente}</div>
-                  <div>{maquinas.map((m,i) => (
-                    <span key={i} style={{...S.tag,background:`${C.accent}15`,color:C.accent,margin:'2px'}}>{m.pdv} {m.modelo}</span>
-                  ))}</div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Novo ficheiro */}
-          <div style={{textAlign:'center',marginTop:'8px'}}>
-            <button style={S.btnSm} onClick={() => { setEstado('idle'); setResultado(null); setNomeFile('') }}>
-              📄 Enviar outro ficheiro
-            </button>
-          </div>
-        </>
-      )}
+        ))}
+      </div>
     </div>
   )
 }
@@ -1491,52 +1593,77 @@ function Dashboard() {
 
 // ── ABA GESTÃO DA ROTA ────────────────────────────────────────
 function TabGestaoRota() {
-  const [estado, setEstado] = useState(() => {
-    try { return localStorage.getItem('gestao_estado') || 'idle' } catch { return 'idle' }
-  })
-  const [analise, setAnalise] = useState(() => {
-    try { const d = localStorage.getItem('gestao_analise'); return d ? JSON.parse(d) : null } catch { return null }
-  })
+  const [folderId, setFolderId] = useState(() => { try { return localStorage.getItem('gestao_folder_id') || null } catch { return null } })
+  const [history, setHistory] = useState([])
+  const [aberto, setAberto] = useState(null)
+  const [analiseAberta, setAnaliseAberta] = useState(null)
+  const [carregandoHist, setCarregandoHist] = useState(false)
+  const [carregandoAnal, setCarregandoAnal] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [nomeFile, setNomeFile] = useState('')
   const [erro, setErro] = useState('')
-  const [nomeFile, setNomeFile] = useState(() => {
-    try { return localStorage.getItem('gestao_ficheiro') || '' } catch { return '' }
-  })
-  const [confirmApagar, setConfirmApagar] = useState(false)
+  const [editando, setEditando] = useState(null)
+  const [editTemp, setEditTemp] = useState('')
+  const [guardandoEdit, setGuardandoEdit] = useState(false)
+  const [confirmApagar, setConfirmApagar] = useState(null)
 
-  const apagarDados = () => {
-    localStorage.removeItem('gestao_estado')
-    localStorage.removeItem('gestao_analise')
-    localStorage.removeItem('gestao_ficheiro')
-    setEstado('idle'); setAnalise(null); setNomeFile(''); setConfirmApagar(false)
-  }
+  const getFolder = useCallback(async () => {
+    let fid = folderId
+    if (!fid) {
+      try {
+        const ch = await nGet(`blocks/${PAGE_IDS.rotaRoot}/children`, { page_size: 100 })
+        const ex = ch.results?.find(b => b.type === 'child_page' && b.child_page?.title === '📊 Gestão da Rota — Rota 606')
+        fid = ex ? ex.id : (await nPost('pages', {
+          parent: { page_id: PAGE_IDS.rotaRoot },
+          icon: { type: 'emoji', emoji: '📊' },
+          properties: { title: { title: [{ type: 'text', text: { content: '📊 Gestão da Rota — Rota 606' } }] } }
+        })).id
+        localStorage.setItem('gestao_folder_id', fid)
+        setFolderId(fid)
+      } catch { return null }
+    }
+    return fid
+  }, [folderId])
 
-  const processarPDF = async (file) => {
-    setEstado('loading')
+  const loadHistory = useCallback(async (fid) => {
+    if (!fid) return
+    setCarregandoHist(true)
+    try {
+      const res = await nGet(`blocks/${fid}/children`, { page_size: 50 })
+      setHistory((res.results || []).filter(b => b.type === 'child_page').map(b => ({ id: b.id, title: b.child_page?.title || 'Análise' })).reverse())
+    } finally { setCarregandoHist(false) }
+  }, [])
+
+  useEffect(() => { getFolder().then(f => loadHistory(f)) }, [])
+
+  const processarImagem = async (file) => {
+    if (uploading) return
+    setUploading(true)
     setNomeFile(file.name)
-    setAnalise(null)
     setErro('')
-
     try {
       const base64 = await new Promise((res, rej) => {
-        const reader = new FileReader()
-        reader.onload = () => res(reader.result.split(',')[1])
-        reader.onerror = () => rej(new Error('Erro ao ler ficheiro'))
-        reader.readAsDataURL(file)
+        const r = new FileReader()
+        r.onload = () => res(r.result.split(',')[1])
+        r.onerror = () => rej(new Error('Erro ao ler imagem'))
+        r.readAsDataURL(file)
       })
-
-      const response = await fetch('/api/anthropic', {
+      const apiRes = await fetch('/api/anthropic', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          pdfBase64: base64,
+          imageBase64: base64,
+          mimeType: file.type || 'image/jpeg',
           maxTokens: 4000,
-          prompt: `És um analista de gestão de rota de máquinas vending especializado. Analisa este ficheiro PDF da Rota 606.
+          prompt: `És um analista de gestão de rota de máquinas vending especializado na Rota 606 (mybreak by Delta Cafés), Marinha Grande, Portugal.
 
-Extrai TODOS os dados de abastecimento, devoluções e danificados da Rota 606.
+Analisa esta IMAGEM com MÁXIMA PRECISÃO. É uma fotografia de um relatório semanal de abastecimento, devoluções e danificados da Rota 606.
+
+Extrai TODOS os dados visíveis na imagem.
 
 Responde APENAS em JSON válido sem texto antes ou depois:
 {
-  "periodo": "período do relatório ex: 01/06 a 07/06/2026",
+  "periodo": "período ex: 01/06 a 07/06/2026",
   "resumo_geral": {
     "total_abastecido": 0,
     "total_devolvido": 0,
@@ -1552,48 +1679,82 @@ Responde APENAS em JSON válido sem texto antes ou depois:
   ],
   "categorias": [
     {"categoria": "Doces", "total": 0, "percentagem": 0.0},
-    {"categoria": "Salgados", "total": 0, "percentagem": 0.0},
-    {"categoria": "Bebidas", "total": 0, "percentagem": 0.0}
+    {"categoria": "Salgados", "total": 0, "percentagem": 0.0}
   ],
   "sugestoes_frescos": [
     {"produto": "Nome", "acao": "MANTER|AUMENTAR|REDUZIR|SUBSTITUIR", "motivo": "Explicação curta"}
   ],
-  "alertas": ["Alerta 1", "Alerta 2"],
-  "conclusao": "Análise resumida em 2-3 frases simples"
+  "alertas": ["Alerta 1"],
+  "conclusao": "Análise resumida em 2-3 frases simples",
+  "raciocinio": "Explicação detalhada de como analisaste a imagem, o que viste, como leste os dados e como chegaste a cada número"
 }`
         })
       })
-
-      if (!response.ok) {
-        const errText = await response.text()
-        throw new Error(`Erro da API (${response.status}): ${errText.slice(0,200)}`)
-      }
-      const data = await response.json()
-      if (data.error) throw new Error(data.error)
-      const texto = data.text || ''
-      if (!texto) throw new Error('Resposta vazia da API.')
-      const clean = texto.replace(/```json|```/g, '').trim()
+      if (!apiRes.ok) throw new Error(`Erro API: ${apiRes.status}`)
+      const apiData = await apiRes.json()
+      if (apiData.error) throw new Error(apiData.error)
+      const clean = (apiData.text || '').replace(/```json|```/g, '').trim()
       const parsed = JSON.parse(clean)
-      setAnalise(parsed)
-      setEstado('resultado')
-      try {
-        localStorage.setItem('gestao_analise', JSON.stringify(parsed))
-        localStorage.setItem('gestao_estado', 'resultado')
-        localStorage.setItem('gestao_ficheiro', file.name)
-      } catch {}
-    } catch(err) {
-      setErro('Erro ao processar: ' + err.message)
-      setEstado('erro')
-    }
+      const fid = await getFolder()
+      if (!fid) throw new Error('Erro ao aceder pasta no Notion')
+      const periodo = parsed.periodo || new Date().toLocaleDateString('pt-PT')
+      const jsonStr = JSON.stringify(parsed)
+      const chunks = []
+      for (let i = 0; i < jsonStr.length; i += 1900) chunks.push({ type: 'text', text: { content: jsonStr.slice(i, i+1900) } })
+      await nPost('pages', {
+        parent: { page_id: fid },
+        icon: { type: 'emoji', emoji: '📊' },
+        properties: { title: { title: [{ type: 'text', text: { content: `📊 Gestão Rota — ${periodo}` } }] } },
+        children: [
+          { object:'block', type:'paragraph', paragraph:{ rich_text:[{ type:'text', text:{ content: parsed.conclusao || '' } }] } },
+          { object:'block', type:'paragraph', paragraph:{ rich_text:[{ type:'text', text:{ content: parsed.raciocinio || '' } }] } },
+          { object:'block', type:'code', code:{ rich_text: chunks, language:'json' } }
+        ]
+      })
+      await loadHistory(fid)
+    } catch(err) { setErro('Erro: ' + err.message) }
+    finally { setUploading(false); setNomeFile('') }
   }
 
-  const onFileChange = (e) => {
-    const file = e.target.files?.[0]
-    if (file?.type === 'application/pdf') processarPDF(file)
-    else if (file) setErro('Por favor envia um ficheiro PDF.')
+  const abrirAnalise = async (pageId) => {
+    if (aberto === pageId) { setAberto(null); setAnaliseAberta(null); return }
+    setAberto(pageId)
+    setCarregandoAnal(true)
+    setAnaliseAberta(null)
+    try {
+      const res = await nGet(`blocks/${pageId}/children`, { page_size: 50 })
+      const blocks = res.results || []
+      const paras = blocks.filter(b => b.type === 'paragraph')
+      const codeB = blocks.find(b => b.type === 'code')
+      const conclusao = paras[0]?.paragraph?.rich_text?.map(t=>t.plain_text).join('') || ''
+      const raciocinio = paras[1]?.paragraph?.rich_text?.map(t=>t.plain_text).join('') || ''
+      const conclusaoBlockId = paras[0]?.id || null
+      let json = null
+      if (codeB) { try { json = JSON.parse(codeB.code.rich_text.map(t=>t.plain_text).join('')) } catch {} }
+      setAnaliseAberta({ json, conclusao, raciocinio, conclusaoBlockId })
+    } catch { setAnaliseAberta({ erro: 'Erro ao carregar.' }) }
+    finally { setCarregandoAnal(false) }
   }
 
-  // ── Mini gráfico de barras SVG
+  const guardarEdit = async () => {
+    if (!editando) return
+    setGuardandoEdit(true)
+    try {
+      await nPatch(`blocks/${editando.blockId}`, { paragraph: { rich_text: [{ type:'text', text:{ content: editTemp } }] } })
+      setAnaliseAberta(prev => ({ ...prev, conclusao: editTemp }))
+      setEditando(null)
+    } finally { setGuardandoEdit(false) }
+  }
+
+  const apagarAnalise = async (pageId) => {
+    try { await nPatch(`pages/${pageId}`, { archived: true }) } catch {}
+    setHistory(prev => prev.filter(h => h.id !== pageId))
+    if (aberto === pageId) { setAberto(null); setAnaliseAberta(null) }
+    setConfirmApagar(null)
+  }
+
+  const statusCor = {'AUMENTAR':'#10D9A0','OK':'#3FB950','REDUZIR':'#E3A340','REVER':'#F85149','MANTER':'#58A6FF','SUBSTITUIR':'#F85149'}
+
   function GraficoBarras({dados, titulo}) {
     if (!dados?.length) return null
     const max = Math.max(...dados.map(d => d.valor))
@@ -1616,7 +1777,6 @@ Responde APENAS em JSON válido sem texto antes ou depois:
     )
   }
 
-  // ── Gráfico pizza SVG
   function GraficoPizza({dados, titulo}) {
     if (!dados?.length) return null
     const total = dados.reduce((a,d) => a + (d.percentagem||0), 0)
@@ -1657,220 +1817,310 @@ Responde APENAS em JSON válido sem texto antes ou depois:
     )
   }
 
-  const statusCor = {'AUMENTAR':'#10D9A0','OK':'#3FB950','REDUZIR':'#E3A340','REVER':'#F85149','MANTER':'#58A6FF','SUBSTITUIR':'#F85149'}
+  const analise = analiseAberta?.json || null
 
   return (
     <div>
-      {/* Upload */}
-      <div style={{background:'#161B22',border:'1px solid #21262D',borderRadius:'10px',padding:'16px',marginBottom:'12px'}}>
-        <div style={{fontWeight:600,fontSize:'14px',marginBottom:'8px',color:'#E6EDF3',display:'flex',alignItems:'center',gap:'8px'}}>📊 Gestão da Rota 606</div>
-        <div style={{color:'#8B949E',fontSize:'13px',marginBottom:'16px'}}>Envia o relatório semanal em PDF para análise completa de vendas, devoluções e quebras.</div>
-        <label style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',border:'2px dashed #10D9A044',borderRadius:'10px',padding:'28px 16px',cursor:'pointer',background:'#10D9A008'}}>
-          <input type="file" accept=".pdf" onChange={onFileChange} style={{display:'none'}}/>
-          <div style={{fontSize:'28px',marginBottom:'6px'}}>📄</div>
-          <div style={{fontWeight:600,color:'#10D9A0',fontSize:'13px'}}>Clica para enviar o PDF</div>
-          {nomeFile && <div style={{color:'#8B949E',fontSize:'11px',marginTop:'4px'}}>📎 {nomeFile}</div>}
-        </label>
-      </div>
-
-      {/* Loading */}
-      {estado === 'loading' && (
-        <div style={{background:'#161B22',border:'1px solid #21262D',borderRadius:'10px',padding:'32px',textAlign:'center',marginBottom:'12px'}}>
-          <div style={{fontSize:'28px',marginBottom:'10px'}}>🔍</div>
-          <div style={{fontWeight:600,color:'#E6EDF3',marginBottom:'6px'}}>A analisar o relatório…</div>
-          <div style={{color:'#8B949E',fontSize:'13px'}}>A IA está a ler e a preparar a análise completa da Rota 606</div>
+      {/* Edit modal */}
+      {editando && (
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'#000000bb',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
+          <div style={{background:C.cards,border:`1px solid ${C.border}`,borderRadius:'12px',padding:'20px',maxWidth:'400px',width:'100%'}}>
+            <div style={{fontWeight:600,color:C.text,marginBottom:'10px'}}>✏️ Editar Conclusão</div>
+            <textarea value={editTemp} onChange={e=>setEditTemp(e.target.value)} rows={5}
+              style={{width:'100%',background:C.bg,border:`1px solid #30363D`,borderRadius:'6px',color:C.text,padding:'10px',fontSize:'13px',resize:'vertical',boxSizing:'border-box',fontFamily:'inherit',marginBottom:'10px'}}/>
+            <div style={{display:'flex',gap:'8px'}}>
+              <button onClick={()=>setEditando(null)} style={{flex:1,background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'6px',padding:'10px',cursor:'pointer',fontSize:'13px'}}>Cancelar</button>
+              <button onClick={guardarEdit} disabled={guardandoEdit} style={{flex:1,background:C.accent,color:'#0D1117',border:'none',borderRadius:'6px',padding:'10px',fontWeight:700,cursor:'pointer',fontSize:'13px'}}>
+                {guardandoEdit ? 'A guardar…' : '💾 Guardar'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Erro */}
-      {estado === 'erro' && (
-        <div style={{background:'#F8514911',border:'1px solid #F8514944',borderRadius:'10px',padding:'16px',marginBottom:'12px'}}>
-          <div style={{color:'#F85149',fontWeight:600,marginBottom:'4px'}}>❌ Erro</div>
-          <div style={{color:'#8B949E',fontSize:'13px'}}>{erro}</div>
-        </div>
-      )}
-
-      {/* Resultado */}
-      {estado === 'resultado' && analise && (
-        <>
-          {/* Resumo geral */}
-          <div style={{background:'#161B22',border:'1px solid #10D9A044',borderRadius:'10px',padding:'16px',marginBottom:'12px'}}>
-            <div style={{fontWeight:600,fontSize:'14px',marginBottom:'12px',color:'#E6EDF3'}}>📅 {analise.periodo}</div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'12px'}}>
-              {[
-                {label:'Abastecido',valor:analise.resumo_geral?.total_abastecido,cor:'#10D9A0'},
-                {label:'Devolvido',valor:analise.resumo_geral?.total_devolvido,cor:'#E3A340'},
-                {label:'Danificado',valor:analise.resumo_geral?.total_danificado,cor:'#F85149'},
-                {label:'Taxa quebra',valor:(analise.resumo_geral?.taxa_quebra_percent||0)+'%',cor:'#A371F7'},
-              ].map((item,i) => (
-                <div key={i} style={{background:'#0D1117',borderRadius:'8px',padding:'10px',textAlign:'center'}}>
-                  <div style={{fontSize:'20px',fontWeight:700,color:item.cor}}>{item.valor}</div>
-                  <div style={{color:'#8B949E',fontSize:'11px',marginTop:'2px'}}>{item.label}</div>
-                </div>
-              ))}
-            </div>
-            {analise.conclusao && (
-              <div style={{color:'#8B949E',fontSize:'13px',background:'#0D1117',padding:'10px',borderRadius:'6px',lineHeight:1.6}}>{analise.conclusao}</div>
-            )}
-          </div>
-
-          {/* Gráfico categorias pizza */}
-          {analise.categorias?.length > 0 && (
-            <div style={{background:'#161B22',border:'1px solid #21262D',borderRadius:'10px',padding:'16px',marginBottom:'12px'}}>
-              <GraficoPizza dados={analise.categorias} titulo="🥧 Distribuição por Categoria"/>
-            </div>
-          )}
-
-          {/* Gráfico top produtos barras */}
-          {analise.top_produtos?.length > 0 && (
-            <div style={{background:'#161B22',border:'1px solid #21262D',borderRadius:'10px',padding:'16px',marginBottom:'12px'}}>
-              <GraficoBarras
-                dados={analise.top_produtos.slice(0,8).map(p=>({label:p.nome,valor:p.vendas||0}))}
-                titulo="📦 Top Produtos — Vendas"
-              />
-              <GraficoBarras
-                dados={analise.top_produtos.filter(p=>p.quebra_percent>0).sort((a,b)=>b.quebra_percent-a.quebra_percent).slice(0,6).map(p=>({label:p.nome,valor:parseFloat(p.quebra_percent)||0,sufixo:'%'}))}
-                titulo="⚠️ Quebra por Produto (%)"
-              />
-              {/* Tabela de produtos */}
-              <div style={{fontWeight:600,fontSize:'13px',color:'#E6EDF3',marginBottom:'8px',marginTop:'8px'}}>📋 Análise por Produto</div>
-              <div style={{overflowX:'auto'}}>
-                <table style={{width:'100%',borderCollapse:'collapse',fontSize:'12px'}}>
-                  <thead>
-                    <tr>
-                      {['Produto','Vendas','Devol.','Danif.','Quebra%','Estado'].map(h=>(
-                        <th key={h} style={{textAlign:'left',padding:'6px 8px',background:'#0D1117',color:'#8B949E',fontSize:'11px',borderBottom:'1px solid #21262D'}}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {analise.top_produtos.map((p,i)=>(
-                      <tr key={i}>
-                        <td style={{padding:'6px 8px',borderBottom:'1px solid #21262D',color:'#E6EDF3',maxWidth:'130px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.nome}</td>
-                        <td style={{padding:'6px 8px',borderBottom:'1px solid #21262D',color:'#10D9A0',fontWeight:600}}>{p.vendas}</td>
-                        <td style={{padding:'6px 8px',borderBottom:'1px solid #21262D',color:'#E3A340'}}>{p.devolucoes}</td>
-                        <td style={{padding:'6px 8px',borderBottom:'1px solid #21262D',color:'#F85149'}}>{p.danificados}</td>
-                        <td style={{padding:'6px 8px',borderBottom:'1px solid #21262D',color:'#8B949E'}}>{p.quebra_percent}%</td>
-                        <td style={{padding:'6px 8px',borderBottom:'1px solid #21262D'}}>
-                          <span style={{background:`${statusCor[p.status]||'#8B949E'}22`,color:statusCor[p.status]||'#8B949E',borderRadius:'4px',padding:'2px 6px',fontSize:'10px',fontWeight:600}}>{p.status}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Por cliente */}
-          {analise.por_cliente?.length > 0 && (
-            <div style={{background:'#161B22',border:'1px solid #21262D',borderRadius:'10px',padding:'16px',marginBottom:'12px'}}>
-              <div style={{fontWeight:600,fontSize:'13px',color:'#E6EDF3',marginBottom:'10px'}}>🏭 Análise por Cliente</div>
-              <GraficoBarras
-                dados={analise.por_cliente.map(c=>({label:`${c.cliente} (${c.maquina})`,valor:c.abastecido||0}))}
-                titulo="Abastecido por Máquina"
-              />
-            </div>
-          )}
-
-          {/* Sugestões frescos */}
-          {analise.sugestoes_frescos?.length > 0 && (
-            <div style={{background:'#161B22',border:'1px solid #10D9A044',borderRadius:'10px',padding:'16px',marginBottom:'12px'}}>
-              <div style={{fontWeight:600,fontSize:'13px',color:'#10D9A0',marginBottom:'10px'}}>💡 Sugestões — Frescos</div>
-              {analise.sugestoes_frescos.map((s,i)=>(
-                <div key={i} style={{padding:'8px 0',borderBottom:'1px solid #21262D',display:'flex',gap:'10px',alignItems:'flex-start'}}>
-                  <span style={{background:`${statusCor[s.acao]||'#8B949E'}22`,color:statusCor[s.acao]||'#8B949E',borderRadius:'4px',padding:'2px 8px',fontSize:'11px',fontWeight:600,flexShrink:0,marginTop:'1px'}}>{s.acao}</span>
-                  <div>
-                    <div style={{color:'#E6EDF3',fontSize:'13px',fontWeight:500}}>{s.produto}</div>
-                    <div style={{color:'#8B949E',fontSize:'12px',marginTop:'2px'}}>{s.motivo}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Alertas */}
-          {analise.alertas?.length > 0 && (
-            <div style={{background:'#E3A34011',border:'1px solid #E3A34044',borderRadius:'10px',padding:'16px',marginBottom:'12px'}}>
-              <div style={{fontWeight:600,fontSize:'13px',color:'#E3A340',marginBottom:'8px'}}>⚠️ Alertas</div>
-              {analise.alertas.map((a,i)=>(
-                <div key={i} style={{color:'#E6EDF3',fontSize:'13px',padding:'4px 0',display:'flex',gap:'8px',alignItems:'flex-start'}}>
-                  <span style={{color:'#E3A340',flexShrink:0}}>•</span>{a}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Botão apagar dados */}
-          <div style={{marginTop:'24px',paddingTop:'16px',borderTop:'1px solid #21262D'}}>
-            <button onClick={() => setConfirmApagar(true)} style={{width:'100%',background:'#F8514911',border:'1px solid #F85149',color:'#F85149',borderRadius:'8px',padding:'14px',fontWeight:700,cursor:'pointer',fontSize:'14px',letterSpacing:'0.5px'}}>
-              🗑️ APAGAR DADOS
-            </button>
-          </div>
-        </>
-      )}
-
-      {/* Popup confirmação apagar */}
+      {/* Delete confirm */}
       {confirmApagar && (
         <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'#000000bb',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
-          <div style={{background:'#161B22',border:'1px solid #F8514944',borderRadius:'12px',padding:'24px',maxWidth:'320px',width:'100%'}}>
-            <div style={{fontSize:'28px',textAlign:'center',marginBottom:'10px'}}>🗑️</div>
-            <div style={{fontWeight:700,textAlign:'center',color:'#E6EDF3',marginBottom:'8px',fontSize:'15px'}}>Apagar todos os dados?</div>
-            <div style={{color:'#8B949E',fontSize:'13px',textAlign:'center',marginBottom:'20px',lineHeight:1.6}}>A análise do relatório será eliminada. A página ficará pronta para receber um novo ficheiro.</div>
-            <div style={{display:'flex',gap:'10px'}}>
-              <button onClick={() => setConfirmApagar(false)} style={{flex:1,background:'transparent',border:'1px solid #30363D',color:'#8B949E',borderRadius:'6px',padding:'12px',cursor:'pointer',fontSize:'13px'}}>Cancelar</button>
-              <button onClick={apagarDados} style={{flex:1,background:'#F85149',color:'#fff',border:'none',borderRadius:'6px',padding:'12px',fontWeight:700,cursor:'pointer',fontSize:'13px'}}>Confirmar</button>
+          <div style={{background:C.cards,border:`1px solid #F8514944`,borderRadius:'12px',padding:'20px',maxWidth:'300px',width:'100%',textAlign:'center'}}>
+            <div style={{fontSize:'28px',marginBottom:'8px'}}>🗑️</div>
+            <div style={{fontWeight:600,color:C.text,marginBottom:'6px'}}>Apagar análise?</div>
+            <div style={{color:C.muted,fontSize:'13px',marginBottom:'16px'}}>Esta análise será apagada do Notion e do dashboard.</div>
+            <div style={{display:'flex',gap:'8px'}}>
+              <button onClick={()=>setConfirmApagar(null)} style={{flex:1,background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'6px',padding:'10px',cursor:'pointer',fontSize:'13px'}}>Cancelar</button>
+              <button onClick={()=>apagarAnalise(confirmApagar)} style={{flex:1,background:C.danger,color:'#fff',border:'none',borderRadius:'6px',padding:'10px',fontWeight:700,cursor:'pointer',fontSize:'13px'}}>Apagar</button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Upload */}
+      <div style={S.card}>
+        <div style={S.cardTitle}>📊 Gestão da Rota 606</div>
+        <div style={{color:C.muted,fontSize:'13px',marginBottom:'14px'}}>Tira uma foto ao relatório semanal e o Claude analisa vendas, devoluções e quebras.</div>
+        <label style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',border:`2px dashed ${C.accent}44`,borderRadius:'10px',padding:'28px 16px',cursor:uploading?'default':'pointer',background:`${C.accent}08`}}>
+          <input type="file" accept="image/*" onChange={e=>{const f=e.target.files?.[0];if(f)processarImagem(f)}} style={{display:'none'}} disabled={uploading}/>
+          {uploading ? (
+            <>
+              <div style={{fontSize:'28px',marginBottom:'8px'}}>🔍</div>
+              <div style={{fontWeight:600,color:C.accent,fontSize:'14px'}}>A analisar imagem…</div>
+              <div style={{color:C.muted,fontSize:'12px',marginTop:'4px'}}>Claude está a processar o relatório da Rota 606</div>
+              {nomeFile && <div style={{color:C.muted,fontSize:'11px',marginTop:'6px'}}>📷 {nomeFile}</div>}
+            </>
+          ) : (
+            <>
+              <div style={{fontSize:'32px',marginBottom:'8px'}}>📷</div>
+              <div style={{fontWeight:600,color:C.accent,fontSize:'14px'}}>Clica para enviar imagem</div>
+              <div style={{color:C.muted,fontSize:'12px',marginTop:'4px'}}>Foto do relatório semanal (JPG, PNG, WEBP)</div>
+            </>
+          )}
+        </label>
+        {erro && <div style={{color:C.danger,fontSize:'13px',marginTop:'10px',padding:'8px',background:`${C.danger}11`,borderRadius:'6px',border:`1px solid ${C.danger}44`}}>{erro}</div>}
+      </div>
+
+      {/* Histórico */}
+      <div style={S.card}>
+        <div style={S.cardTitle}>🗂️ Histórico de Análises</div>
+        {carregandoHist ? (
+          <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'20px'}}>A carregar histórico…</div>
+        ) : history.length === 0 ? (
+          <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'20px'}}>Sem análises guardadas ainda</div>
+        ) : history.map(item => (
+          <div key={item.id} style={{borderBottom:`1px solid ${C.border}`}}>
+            <div style={{display:'flex',alignItems:'center',gap:'8px',padding:'10px 0',cursor:'pointer'}} onClick={()=>abrirAnalise(item.id)}>
+              <span style={{flex:1,color:C.text,fontSize:'13px'}}>{item.title}</span>
+              <button onClick={e=>{e.stopPropagation();setConfirmApagar(item.id)}}
+                style={{background:'transparent',border:`1px solid #F8514944`,color:C.danger,borderRadius:'4px',padding:'4px 8px',cursor:'pointer',fontSize:'11px'}}>🗑</button>
+              <span style={{color:C.muted,fontSize:'12px',flexShrink:0}}>{aberto===item.id?'▲':'▼'}</span>
+            </div>
+            {aberto === item.id && (
+              <div style={{background:C.bg,borderRadius:'8px',padding:'12px',marginBottom:'10px'}}>
+                {carregandoAnal && !analiseAberta ? (
+                  <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'12px'}}>A carregar…</div>
+                ) : analiseAberta?.erro ? (
+                  <div style={{color:C.danger,fontSize:'13px'}}>{analiseAberta.erro}</div>
+                ) : analiseAberta ? (
+                  <>
+                    <div style={{display:'flex',justifyContent:'flex-end',marginBottom:'8px'}}>
+                      <button onClick={()=>{setEditando({blockId:analiseAberta.conclusaoBlockId});setEditTemp(analiseAberta.conclusao)}}
+                        style={{background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'4px',padding:'4px 10px',cursor:'pointer',fontSize:'11px'}}>✏️ Editar conclusão</button>
+                    </div>
+
+                    {analise?.periodo && <div style={{fontWeight:600,fontSize:'14px',color:C.text,marginBottom:'10px'}}>📅 {analise.periodo}</div>}
+
+                    {analise?.resumo_geral && (
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'10px'}}>
+                        {[
+                          {label:'Abastecido',valor:analise.resumo_geral.total_abastecido,cor:C.accent},
+                          {label:'Devolvido',valor:analise.resumo_geral.total_devolvido,cor:'#E3A340'},
+                          {label:'Danificado',valor:analise.resumo_geral.total_danificado,cor:C.danger},
+                          {label:'Taxa quebra',valor:(analise.resumo_geral.taxa_quebra_percent||0)+'%',cor:'#A371F7'},
+                        ].map((item,i)=>(
+                          <div key={i} style={{background:C.cards,borderRadius:'8px',padding:'8px',textAlign:'center'}}>
+                            <div style={{fontSize:'18px',fontWeight:700,color:item.cor}}>{item.valor}</div>
+                            <div style={{color:C.muted,fontSize:'10px',marginTop:'2px'}}>{item.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div style={{color:C.muted,fontSize:'11px',fontWeight:600,textTransform:'uppercase',marginBottom:'4px'}}>Conclusão</div>
+                    <div style={{color:C.text,fontSize:'13px',background:C.cards,padding:'10px',borderRadius:'6px',lineHeight:1.6,marginBottom:'10px'}}>{analiseAberta.conclusao||'—'}</div>
+
+                    {analiseAberta.raciocinio && (
+                      <>
+                        <div style={{color:C.muted,fontSize:'11px',fontWeight:600,textTransform:'uppercase',marginBottom:'4px'}}>Raciocínio da IA</div>
+                        <div style={{color:C.muted,fontSize:'12px',background:C.cards,padding:'10px',borderRadius:'6px',lineHeight:1.6,borderLeft:`3px solid ${C.accent}`,marginBottom:'10px'}}>{analiseAberta.raciocinio}</div>
+                      </>
+                    )}
+
+                    {analise?.categorias?.length > 0 && (
+                      <div style={{marginBottom:'10px'}}><GraficoPizza dados={analise.categorias} titulo="🥧 Categorias"/></div>
+                    )}
+
+                    {analise?.top_produtos?.length > 0 && (
+                      <div style={{marginBottom:'10px'}}>
+                        <GraficoBarras dados={analise.top_produtos.slice(0,8).map(p=>({label:p.nome,valor:p.vendas||0}))} titulo="📦 Top Produtos — Vendas"/>
+                        <div style={{fontWeight:600,fontSize:'12px',color:C.text,marginBottom:'6px',marginTop:'8px'}}>📋 Análise por Produto</div>
+                        <div style={{overflowX:'auto'}}>
+                          <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px'}}>
+                            <thead><tr>{['Produto','Vendas','Dev.','Dan.','Quebra%','Estado'].map(h=>(
+                              <th key={h} style={{textAlign:'left',padding:'5px 6px',background:C.cards,color:C.muted,fontSize:'10px',borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                            ))}</tr></thead>
+                            <tbody>{analise.top_produtos.map((p,i)=>(
+                              <tr key={i}>
+                                <td style={{padding:'5px 6px',borderBottom:`1px solid ${C.border}`,color:C.text,maxWidth:'110px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.nome}</td>
+                                <td style={{padding:'5px 6px',borderBottom:`1px solid ${C.border}`,color:C.accent,fontWeight:600}}>{p.vendas}</td>
+                                <td style={{padding:'5px 6px',borderBottom:`1px solid ${C.border}`,color:'#E3A340'}}>{p.devolucoes}</td>
+                                <td style={{padding:'5px 6px',borderBottom:`1px solid ${C.border}`,color:C.danger}}>{p.danificados}</td>
+                                <td style={{padding:'5px 6px',borderBottom:`1px solid ${C.border}`,color:C.muted}}>{p.quebra_percent}%</td>
+                                <td style={{padding:'5px 6px',borderBottom:`1px solid ${C.border}`}}>
+                                  <span style={{background:`${statusCor[p.status]||C.muted}22`,color:statusCor[p.status]||C.muted,borderRadius:'3px',padding:'1px 5px',fontSize:'10px',fontWeight:600}}>{p.status}</span>
+                                </td>
+                              </tr>
+                            ))}</tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {analise?.sugestoes_frescos?.length > 0 && (
+                      <div style={{marginBottom:'10px'}}>
+                        <div style={{color:C.accent,fontSize:'12px',fontWeight:600,marginBottom:'6px'}}>💡 Sugestões Frescos</div>
+                        {analise.sugestoes_frescos.map((s,i)=>(
+                          <div key={i} style={{padding:'6px 0',borderBottom:`1px solid ${C.border}`,display:'flex',gap:'8px',alignItems:'flex-start'}}>
+                            <span style={{background:`${statusCor[s.acao]||C.muted}22`,color:statusCor[s.acao]||C.muted,borderRadius:'3px',padding:'1px 6px',fontSize:'10px',fontWeight:600,flexShrink:0,marginTop:'1px'}}>{s.acao}</span>
+                            <div>
+                              <div style={{color:C.text,fontSize:'12px',fontWeight:500}}>{s.produto}</div>
+                              <div style={{color:C.muted,fontSize:'11px',marginTop:'1px'}}>{s.motivo}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {analise?.alertas?.length > 0 && (
+                      <div style={{background:'#E3A34011',border:`1px solid #E3A34044`,borderRadius:'8px',padding:'10px'}}>
+                        <div style={{color:'#E3A340',fontSize:'12px',fontWeight:600,marginBottom:'6px'}}>⚠️ Alertas</div>
+                        {analise.alertas.map((a,i)=>(
+                          <div key={i} style={{color:C.text,fontSize:'12px',padding:'3px 0',display:'flex',gap:'6px'}}>
+                            <span style={{color:'#E3A340',flexShrink:0}}>•</span>{a}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : null}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
 
 // ── ABA PIQUETE ───────────────────────────────────────────────
 function TabPiquete() {
-  const [rota, setRota] = useState(() => {
-    try { return localStorage.getItem('piquete_rota') || '' } catch { return '' }
-  })
+  const [pageId, setPageId] = useState(() => { try { return localStorage.getItem('piquete_page_id') || null } catch { return null } })
+  const [carregando, setCarregando] = useState(true)
+  const [rota, setRota] = useState('')
+  const [rotaBlockId, setRotaBlockId] = useState(null)
   const [editandoRota, setEditandoRota] = useState(false)
   const [rotaTemp, setRotaTemp] = useState('')
   const [confirmExcluir, setConfirmExcluir] = useState(false)
-
   const [data, setData] = useState('')
   const [horas, setHoras] = useState('')
-  const [registos, setRegistos] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('piquete_horas') || '[]') } catch { return [] }
-  })
+  const [registos, setRegistos] = useState([])
   const [confirmExcluirHora, setConfirmExcluirHora] = useState(null)
   const [copiado, setCopiado] = useState(null)
+  const [guardando, setGuardando] = useState(false)
 
-  const guardarRota = () => {
-    localStorage.setItem('piquete_rota', rotaTemp)
-    setRota(rotaTemp)
-    setEditandoRota(false)
+  const getPage = useCallback(async () => {
+    let pid = pageId
+    if (!pid) {
+      try {
+        const ch = await nGet(`blocks/${PAGE_IDS.rotaRoot}/children`, { page_size: 100 })
+        const ex = ch.results?.find(b => b.type === 'child_page' && b.child_page?.title === '🚨 Piquete — Rota 606')
+        if (ex) {
+          pid = ex.id
+        } else {
+          const cr = await nPost('pages', {
+            parent: { page_id: PAGE_IDS.rotaRoot },
+            icon: { type: 'emoji', emoji: '🚨' },
+            properties: { title: { title: [{ type: 'text', text: { content: '🚨 Piquete — Rota 606' } }] } },
+            children: [
+              { object:'block', type:'heading_2', heading_2:{ rich_text:[{ type:'text', text:{ content:'🗺️ Rota do Piquete' } }] } },
+              { object:'block', type:'paragraph', paragraph:{ rich_text:[] } },
+              { object:'block', type:'divider', divider:{} },
+              { object:'block', type:'heading_2', heading_2:{ rich_text:[{ type:'text', text:{ content:'⏱️ Horas Trabalhadas' } }] } },
+            ]
+          })
+          pid = cr.id
+        }
+        localStorage.setItem('piquete_page_id', pid)
+        setPageId(pid)
+      } catch { return null }
+    }
+    return pid
+  }, [pageId])
+
+  const carregarDados = useCallback(async (pid) => {
+    if (!pid) return
+    setCarregando(true)
+    try {
+      const res = await nGet(`blocks/${pid}/children`, { page_size: 100 })
+      const blocks = res.results || []
+      let rotaTxt = '', rotaBid = null, horasArr = []
+      let modoRota = false, modoHoras = false, aguardaRota = false
+      for (const b of blocks) {
+        if (b.type === 'heading_2') {
+          const txt = b.heading_2?.rich_text?.map(t=>t.plain_text).join('') || ''
+          modoRota = txt.includes('Rota do Piquete')
+          modoHoras = txt.includes('Horas Trabalhadas')
+          aguardaRota = modoRota
+          continue
+        }
+        if (b.type === 'divider') { modoRota = false; aguardaRota = false; continue }
+        if (b.type === 'paragraph') {
+          const txt = b.paragraph?.rich_text?.map(t=>t.plain_text).join('') || ''
+          if (aguardaRota) { rotaTxt = txt; rotaBid = b.id; aguardaRota = false }
+          else if (modoHoras && txt) {
+            const parts = txt.split('|')
+            if (parts.length >= 3) horasArr.push({ data: parts[0], horas: parts[1], id: parts[2], blockId: b.id })
+          }
+        }
+      }
+      setRota(rotaTxt)
+      setRotaBlockId(rotaBid)
+      setRegistos(horasArr)
+    } finally { setCarregando(false) }
+  }, [])
+
+  useEffect(() => { getPage().then(pid => carregarDados(pid)) }, [])
+
+  const guardarRota = async () => {
+    if (!rotaBlockId) return
+    setGuardando(true)
+    try {
+      await nPatch(`blocks/${rotaBlockId}`, { paragraph: { rich_text: rotaTemp ? [{ type:'text', text:{ content: rotaTemp } }] : [] } })
+      setRota(rotaTemp)
+      setEditandoRota(false)
+    } finally { setGuardando(false) }
   }
 
-  const excluirRota = () => {
-    localStorage.removeItem('piquete_rota')
-    setRota('')
-    setConfirmExcluir(false)
+  const excluirRota = async () => {
+    if (!rotaBlockId) return
+    setGuardando(true)
+    try {
+      await nPatch(`blocks/${rotaBlockId}`, { paragraph: { rich_text: [] } })
+      setRota('')
+      setConfirmExcluir(false)
+    } finally { setGuardando(false) }
   }
 
-  const adicionarHora = () => {
+  const adicionarHora = async () => {
     if (!data || !horas) return
-    const novo = { id: Date.now(), data, horas }
-    const novos = [...registos, novo]
-    setRegistos(novos)
-    localStorage.setItem('piquete_horas', JSON.stringify(novos))
-    setData(''); setHoras('')
+    const pid = await getPage()
+    if (!pid) return
+    setGuardando(true)
+    const id = Date.now().toString()
+    const txt = `${data}|${horas}|${id}`
+    try {
+      await nPost(`blocks/${pid}/children`, {
+        children: [{ object:'block', type:'paragraph', paragraph:{ rich_text:[{ type:'text', text:{ content: txt } }] } }]
+      })
+      await carregarDados(pid)
+      setData(''); setHoras('')
+    } finally { setGuardando(false) }
   }
 
-  const excluirHora = (id) => {
-    const novos = registos.filter(r => r.id !== id)
-    setRegistos(novos)
-    localStorage.setItem('piquete_horas', JSON.stringify(novos))
-    setConfirmExcluirHora(null)
+  const excluirHora = async (blockId) => {
+    setGuardando(true)
+    try {
+      await nDelete(`blocks/${blockId}`)
+      setRegistos(prev => prev.filter(r => r.blockId !== blockId))
+      setConfirmExcluirHora(null)
+    } finally { setGuardando(false) }
   }
 
   const textoWhatsApp = (r) => {
@@ -1885,8 +2135,7 @@ function TabPiquete() {
   }
 
   const partilharWhatsApp = (r) => {
-    const texto = encodeURIComponent(textoWhatsApp(r))
-    window.open(`https://wa.me/?text=${texto}`, '_blank')
+    window.open(`https://wa.me/?text=${encodeURIComponent(textoWhatsApp(r))}`, '_blank')
   }
 
   const S2 = {
@@ -1902,6 +2151,15 @@ function TabPiquete() {
     tag: { background:'#21262D', borderRadius:'4px', padding:'2px 8px', fontSize:'11px', color:'#8B949E', display:'inline-block' },
   }
 
+  if (carregando) {
+    return (
+      <div style={{...S2.section,textAlign:'center',padding:'40px'}}>
+        <div style={{fontSize:'28px',marginBottom:'10px'}}>🔄</div>
+        <div style={{color:'#8B949E',fontSize:'13px'}}>A sincronizar com o Notion…</div>
+      </div>
+    )
+  }
+
   return (
     <div>
       {/* Popup excluir rota */}
@@ -1910,10 +2168,10 @@ function TabPiquete() {
           <div style={{background:'#161B22',border:'1px solid #F8514944',borderRadius:'12px',padding:'24px',maxWidth:'300px',width:'100%'}}>
             <div style={{fontSize:'24px',textAlign:'center',marginBottom:'10px'}}>⚠️</div>
             <div style={{fontWeight:600,textAlign:'center',color:'#E6EDF3',marginBottom:'6px'}}>Excluir anotação?</div>
-            <div style={{color:'#8B949E',fontSize:'13px',textAlign:'center',marginBottom:'18px'}}>A rota do piquete será apagada permanentemente.</div>
+            <div style={{color:'#8B949E',fontSize:'13px',textAlign:'center',marginBottom:'18px'}}>A rota do piquete será apagada do Notion.</div>
             <div style={{display:'flex',gap:'8px'}}>
               <button onClick={() => setConfirmExcluir(false)} style={{...S2.btnSm,flex:1,padding:'10px'}}>Cancelar</button>
-              <button onClick={excluirRota} style={{...S2.btnDanger,flex:1,padding:'10px',fontWeight:600}}>Excluir</button>
+              <button onClick={excluirRota} disabled={guardando} style={{...S2.btnDanger,flex:1,padding:'10px',fontWeight:600}}>{guardando?'…':'Excluir'}</button>
             </div>
           </div>
         </div>
@@ -1925,10 +2183,10 @@ function TabPiquete() {
           <div style={{background:'#161B22',border:'1px solid #F8514944',borderRadius:'12px',padding:'24px',maxWidth:'300px',width:'100%'}}>
             <div style={{fontSize:'24px',textAlign:'center',marginBottom:'10px'}}>⚠️</div>
             <div style={{fontWeight:600,textAlign:'center',color:'#E6EDF3',marginBottom:'6px'}}>Excluir registo?</div>
-            <div style={{color:'#8B949E',fontSize:'13px',textAlign:'center',marginBottom:'18px'}}>O registo de horas será apagado.</div>
+            <div style={{color:'#8B949E',fontSize:'13px',textAlign:'center',marginBottom:'18px'}}>O registo de horas será apagado do Notion.</div>
             <div style={{display:'flex',gap:'8px'}}>
               <button onClick={() => setConfirmExcluirHora(null)} style={{...S2.btnSm,flex:1,padding:'10px'}}>Cancelar</button>
-              <button onClick={() => excluirHora(confirmExcluirHora)} style={{...S2.btnDanger,flex:1,padding:'10px',fontWeight:600}}>Excluir</button>
+              <button onClick={() => excluirHora(confirmExcluirHora)} disabled={guardando} style={{...S2.btnDanger,flex:1,padding:'10px',fontWeight:600}}>{guardando?'…':'Excluir'}</button>
             </div>
           </div>
         </div>
@@ -1937,29 +2195,20 @@ function TabPiquete() {
       {/* Rota do Piquete */}
       <div style={S2.section}>
         <div style={S2.title}>🚨 Rota do Piquete</div>
-
         {editandoRota ? (
           <>
-            <textarea
-              value={rotaTemp}
-              onChange={e => setRotaTemp(e.target.value)}
-              rows={6}
+            <textarea value={rotaTemp} onChange={e => setRotaTemp(e.target.value)} rows={6}
               style={{...S2.input, width:'100%', resize:'vertical', fontFamily:'inherit', boxSizing:'border-box', marginBottom:'10px'}}
-              placeholder="Escreve aqui a rota do piquete..."
-            />
+              placeholder="Escreve aqui a rota do piquete…"/>
             <div style={S2.row}>
-              <button style={S2.btn} onClick={guardarRota}>💾 Guardar</button>
+              <button style={S2.btn} onClick={guardarRota} disabled={guardando}>{guardando?'A guardar…':'💾 Guardar'}</button>
               <button style={S2.btnSm} onClick={() => setEditandoRota(false)}>Cancelar</button>
             </div>
           </>
         ) : (
           <>
-            {rota ? (
-              <div style={S2.rotaBox}>{rota}</div>
-            ) : (
-              <div style={{color:'#8B949E',fontSize:'13px',textAlign:'center',padding:'24px 0'}}>
-                Sem rota definida — clica em editar para adicionar
-              </div>
+            {rota ? <div style={S2.rotaBox}>{rota}</div> : (
+              <div style={{color:'#8B949E',fontSize:'13px',textAlign:'center',padding:'24px 0'}}>Sem rota definida — clica em editar para adicionar</div>
             )}
             <div style={{...S2.row, marginTop:'12px'}}>
               <button style={S2.btnSm} onClick={() => { setRotaTemp(rota); setEditandoRota(true) }}>✏️ Editar</button>
@@ -1972,54 +2221,44 @@ function TabPiquete() {
       {/* Horas Trabalhadas */}
       <div style={S2.section}>
         <div style={S2.title}>⏱️ Horas Trabalhadas</div>
-
-        {/* Adicionar registo */}
         <div style={{background:'#0D1117',borderRadius:'8px',padding:'12px',marginBottom:'14px',border:'1px solid #21262D'}}>
           <div style={{color:'#8B949E',fontSize:'11px',fontWeight:600,marginBottom:'8px',textTransform:'uppercase',letterSpacing:'0.5px'}}>Novo registo</div>
           <div style={{...S2.row, marginBottom:'8px'}}>
-            <input type="date" value={data} onChange={e => setData(e.target.value)}
-              style={{...S2.input, flex:1, minWidth:'130px'}}/>
-            <input type="text" value={horas} onChange={e => setHoras(e.target.value)}
-              placeholder="Ex: 8h30" style={{...S2.input, width:'90px'}}
-              onKeyDown={e => e.key === 'Enter' && adicionarHora()}/>
-            <button style={S2.btn} onClick={adicionarHora} disabled={!data || !horas}>+ Adicionar</button>
+            <input type="date" value={data} onChange={e => setData(e.target.value)} style={{...S2.input, flex:1, minWidth:'130px'}}/>
+            <input type="text" value={horas} onChange={e => setHoras(e.target.value)} placeholder="Ex: 8h30"
+              style={{...S2.input, width:'90px'}} onKeyDown={e => e.key === 'Enter' && adicionarHora()}/>
+            <button style={S2.btn} onClick={adicionarHora} disabled={!data || !horas || guardando}>
+              {guardando ? '…' : '+ Adicionar'}
+            </button>
           </div>
         </div>
 
-        {/* Lista de registos */}
         {registos.length === 0 ? (
           <div style={{color:'#8B949E',fontSize:'13px',textAlign:'center',padding:'16px 0'}}>Sem registos de horas</div>
         ) : (
-          registos.map((r,i) => {
+          registos.map((r) => {
             const diaSemana = new Date(r.data + 'T12:00:00').toLocaleDateString('pt-PT', { weekday: 'long' })
             const dataFmt = r.data.split('-').reverse().join('/')
             return (
-              <div key={r.id} style={{background:'#0D1117',borderRadius:'8px',padding:'12px',marginBottom:'8px',border:'1px solid #21262D'}}>
-                {/* Cabeçalho */}
+              <div key={r.blockId} style={{background:'#0D1117',borderRadius:'8px',padding:'12px',marginBottom:'8px',border:'1px solid #21262D'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
                   <div>
                     <span style={{fontWeight:600,color:'#E6EDF3',fontSize:'13px',textTransform:'capitalize'}}>{diaSemana}</span>
                     <span style={{...S2.tag,marginLeft:'8px'}}>{dataFmt}</span>
                     <span style={{...S2.tag,marginLeft:'4px',color:'#10D9A0',background:'#10D9A022'}}>{r.horas}</span>
                   </div>
-                  <button style={S2.btnDanger} onClick={() => setConfirmExcluirHora(r.id)}>🗑</button>
+                  <button style={S2.btnDanger} onClick={() => setConfirmExcluirHora(r.blockId)}>🗑</button>
                 </div>
-
-                {/* Texto de partilha */}
                 <div style={{background:'#161B22',borderRadius:'6px',padding:'10px',fontSize:'12px',color:'#8B949E',lineHeight:1.7,marginBottom:'10px',fontFamily:'monospace'}}>
                   Horas trabalhadas no piquete de {diaSemana}, Rota 606.<br/>
                   Data: {dataFmt}<br/>
                   Horas: {r.horas}
                 </div>
-
-                {/* Botões */}
                 <div style={S2.row}>
                   <button style={S2.btnSm} onClick={() => copiarTexto(r)}>
                     {copiado === r.id ? '✅ Copiado!' : '📋 Copiar'}
                   </button>
-                  <button style={S2.btnWA} onClick={() => partilharWhatsApp(r)}>
-                    📲 Partilhar no WhatsApp
-                  </button>
+                  <button style={S2.btnWA} onClick={() => partilharWhatsApp(r)}>📲 Partilhar no WhatsApp</button>
                 </div>
               </div>
             )
