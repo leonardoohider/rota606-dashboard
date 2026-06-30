@@ -1379,7 +1379,9 @@ function TabInventario() {
                   <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'12px'}}>A carregar…</div>
                 ) : textoAberto ? (
                   <>
-                    <div style={{display:'flex',justifyContent:'flex-end',marginBottom:'8px'}}>
+                    <div style={{display:'flex',justifyContent:'flex-end',gap:'6px',marginBottom:'8px'}}>
+                      <button onClick={()=>window.open(`https://wa.me/?text=${encodeURIComponent(item.title+'\n\n'+textoAberto.texto)}`,'_blank')}
+                        style={{background:'#25D366',border:'none',color:'#fff',borderRadius:'4px',padding:'4px 10px',cursor:'pointer',fontSize:'11px',fontWeight:600}}>📤 WhatsApp</button>
                       <button onClick={()=>{setEditTemp(textoAberto.texto);setEditando({pageId:item.id})}}
                         style={{background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'4px',padding:'4px 10px',cursor:'pointer',fontSize:'11px'}}>✏️ Editar</button>
                     </div>
@@ -1777,7 +1779,9 @@ function TabGestaoRota() {
                   <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'12px'}}>A carregar…</div>
                 ) : textoAberto ? (
                   <>
-                    <div style={{display:'flex',justifyContent:'flex-end',marginBottom:'8px'}}>
+                    <div style={{display:'flex',justifyContent:'flex-end',gap:'6px',marginBottom:'8px'}}>
+                      <button onClick={()=>window.open(`https://wa.me/?text=${encodeURIComponent(item.title+'\n\n'+textoAberto.texto)}`,'_blank')}
+                        style={{background:'#25D366',border:'none',color:'#fff',borderRadius:'4px',padding:'4px 10px',cursor:'pointer',fontSize:'11px',fontWeight:600}}>📤 WhatsApp</button>
                       <button onClick={()=>{setEditTemp(textoAberto.texto);setEditando({pageId:item.id})}}
                         style={{background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'4px',padding:'4px 10px',cursor:'pointer',fontSize:'11px'}}>✏️ Editar</button>
                     </div>
