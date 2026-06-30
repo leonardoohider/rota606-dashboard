@@ -57,6 +57,19 @@ function extractText(blocks) {
 function today() {
   return new Date().toLocaleDateString('pt-PT', {day:'2-digit',month:'2-digit',year:'numeric'})
 }
+function todayISO() {
+  return new Date().toISOString().split('T')[0]
+}
+function minutesToHM(min) {
+  if (min < 0) min = 0
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return `${String(h).padStart(2,'0')}h${String(m).padStart(2,'0')}m`
+}
+function timeToMin(hhmm) {
+  const [h,m] = (hhmm||'00:00').split(':').map(Number)
+  return (h||0)*60 + (m||0)
+}
 
 // ── ROTA ──────────────────────────────────────────────────────
 const ROTA = {
@@ -266,6 +279,78 @@ function FrescoDetalhe({fresco, onBack}) {
 
 // ── ABA INÍCIO ────────────────────────────────────────────────
 function TabInicio({chamados,loading,onVerFresco,onVerAT,pdvYoung,pdv1050,pdvYoungEdit,pdv1050Edit}) {
+  const ENTRADA_FIXA = '05:00'
+  const JORNADA_MIN = 7 * 60
+
+  const [pontoHoje, setPontoHoje] = useState(() => {
+    try {
+      const s = localStorage.getItem('ponto_today')
+      if (!s) return null
+      const p = JSON.parse(s)
+      if (p.date !== todayISO()) return null
+      return p
+    } catch { return null }
+  })
+  const [registandoPonto, setRegistandoPonto] = useState(false)
+  const [pontoSalvo, setPontoSalvo] = useState(false)
+
+  const registrarSaida = async () => {
+    setRegistandoPonto(true)
+    try {
+      const agora = new Date()
+      const saida = `${String(agora.getHours()).padStart(2,'0')}:${String(agora.getMinutes()).padStart(2,'0')}`
+      const totalMin = timeToMin(saida) - timeToMin(ENTRADA_FIXA)
+      const normalMin = Math.min(totalMin, JORNADA_MIN)
+      const extraMin = Math.max(0, totalMin - JORNADA_MIN)
+      const dateISO = todayISO()
+      const dateFmt = today()
+      const mesIdx = agora.getMonth()
+      const mesLabel = `${MESES_PT[mesIdx].charAt(0).toUpperCase()+MESES_PT[mesIdx].slice(1)}/${agora.getFullYear()}`
+
+      // Get or create ponto root
+      let rootId = localStorage.getItem('ponto_root_id') || null
+      if (!rootId) {
+        const ch = await nGet(`blocks/${PAGE_IDS.rotaRoot}/children`, { page_size: 100 })
+        const ex = ch.results?.find(b => b.type === 'child_page' && b.child_page?.title === '⏱️ Ponto — Rota 606')
+        rootId = ex ? ex.id : (await nPost('pages', {
+          parent: { page_id: PAGE_IDS.rotaRoot },
+          properties: { title: { title: [{ text: { content: '⏱️ Ponto — Rota 606' } }] } },
+          icon: { type: 'emoji', emoji: '⏱️' }
+        })).id
+        try { localStorage.setItem('ponto_root_id', rootId) } catch {}
+      }
+
+      // Get or create monthly subfolder
+      const mesKey = `ponto_mes_${agora.getFullYear()}_${mesIdx}`
+      let mesId = localStorage.getItem(mesKey) || null
+      if (!mesId) {
+        const chMes = await nGet(`blocks/${rootId}/children`, { page_size: 50 })
+        const exMes = chMes.results?.find(b => b.type === 'child_page' && b.child_page?.title === mesLabel)
+        mesId = exMes ? exMes.id : (await nPost('pages', {
+          parent: { page_id: rootId },
+          properties: { title: { title: [{ text: { content: mesLabel } }] } }
+        })).id
+        try { localStorage.setItem(mesKey, mesId) } catch {}
+      }
+
+      // Create day page in Notion
+      const pageContent = `Entrada: ${ENTRADA_FIXA}\nSaída: ${saida}\nTotal: ${minutesToHM(totalMin)}\nHoras Normais: ${minutesToHM(normalMin)}\nHoras Extra: ${minutesToHM(extraMin)}`
+      const pg = await nPost('pages', {
+        parent: { page_id: mesId },
+        properties: { title: { title: [{ text: { content: `⏱️ Ponto — ${dateFmt}` } }] } },
+        icon: { type: 'emoji', emoji: '⏱️' },
+        children: [{ object:'block', type:'paragraph', paragraph:{ rich_text:[{ type:'text', text:{ content: pageContent } }] } }]
+      })
+
+      const ponto = { date: dateISO, entrada: ENTRADA_FIXA, saida, totalMin, normalMin, extraMin, notionPageId: pg.id }
+      try { localStorage.setItem('ponto_today', JSON.stringify(ponto)) } catch {}
+      setPontoHoje(ponto)
+      setPontoSalvo(true)
+      setTimeout(() => setPontoSalvo(false), 4000)
+    } catch(e) { console.error('Ponto error:', e) }
+    finally { setRegistandoPonto(false) }
+  }
+
   const diaIdx = new Date().getDay()
   const dias = ['','2ª Feira','3ª Feira','4ª Feira','5ª Feira','6ª Feira']
   const diaAtual = dias[diaIdx] || '2ª Feira'
@@ -319,6 +404,56 @@ function TabInicio({chamados,loading,onVerFresco,onVerAT,pdvYoung,pdv1050,pdvYou
             <div style={S.badge(C.warning)}>{chamados.length} chamado{chamados.length>1?'s':''}</div>
           )}
         </div>
+      </div>
+
+      {/* Ponto do dia */}
+      <div style={{...S.card, borderColor: pontoHoje ? `${C.accent}44` : C.border}}>
+        <div style={S.cardTitle}>🕐 Ponto do Dia</div>
+        {pontoHoje ? (
+          <div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'10px'}}>
+              <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:'8px',padding:'10px',textAlign:'center'}}>
+                <div style={{color:C.muted,fontSize:'10px',fontWeight:600,marginBottom:'4px'}}>ENTRADA</div>
+                <div style={{color:C.text,fontSize:'20px',fontWeight:700}}>{pontoHoje.entrada}</div>
+              </div>
+              <div style={{background:C.bg,border:`1px solid ${C.accent}44`,borderRadius:'8px',padding:'10px',textAlign:'center'}}>
+                <div style={{color:C.muted,fontSize:'10px',fontWeight:600,marginBottom:'4px'}}>SAÍDA</div>
+                <div style={{color:C.accent,fontSize:'20px',fontWeight:700}}>{pontoHoje.saida}</div>
+              </div>
+              <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:'8px',padding:'10px',textAlign:'center'}}>
+                <div style={{color:C.muted,fontSize:'10px',fontWeight:600,marginBottom:'4px'}}>HORAS NORMAIS</div>
+                <div style={{color:C.text,fontSize:'16px',fontWeight:700}}>{minutesToHM(pontoHoje.normalMin)}</div>
+              </div>
+              <div style={{background:pontoHoje.extraMin>0?`${C.warning}11`:C.bg,border:`1px solid ${pontoHoje.extraMin>0?C.warning+'44':C.border}`,borderRadius:'8px',padding:'10px',textAlign:'center'}}>
+                <div style={{color:C.muted,fontSize:'10px',fontWeight:600,marginBottom:'4px'}}>HORAS EXTRA</div>
+                <div style={{color:pontoHoje.extraMin>0?C.warning:C.muted,fontSize:'16px',fontWeight:700}}>{minutesToHM(pontoHoje.extraMin)}</div>
+              </div>
+            </div>
+            <div style={{background:`${C.accent}11`,border:`1px solid ${C.accent}33`,borderRadius:'8px',padding:'10px',textAlign:'center'}}>
+              <div style={{color:C.muted,fontSize:'10px',fontWeight:600,marginBottom:'4px'}}>TOTAL DO DIA</div>
+              <div style={{color:C.accent,fontSize:'22px',fontWeight:700}}>{minutesToHM(pontoHoje.totalMin)}</div>
+            </div>
+            {pontoSalvo && <div style={{color:C.accent,fontSize:'11px',fontWeight:600,textAlign:'center',marginTop:'8px'}}>✅ Guardado no Notion</div>}
+          </div>
+        ) : (
+          <div>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-around',marginBottom:'16px',padding:'10px 0'}}>
+              <div style={{textAlign:'center'}}>
+                <div style={{color:C.muted,fontSize:'11px',fontWeight:600,marginBottom:'4px'}}>ENTRADA</div>
+                <div style={{color:C.text,fontSize:'22px',fontWeight:700}}>05:00</div>
+              </div>
+              <div style={{color:C.muted,fontSize:'20px'}}>→</div>
+              <div style={{textAlign:'center'}}>
+                <div style={{color:C.muted,fontSize:'11px',fontWeight:600,marginBottom:'4px'}}>SAÍDA</div>
+                <div style={{color:C.muted,fontSize:'22px'}}>--:--</div>
+              </div>
+            </div>
+            <button onClick={registrarSaida} disabled={registandoPonto}
+              style={{...S.btn, width:'100%', padding:'14px', fontSize:'15px', letterSpacing:'0.3px', opacity:registandoPonto?0.6:1}}>
+              {registandoPonto ? '⏳ A registar…' : '🟢 Registar Saída'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* BA Vidros — alerta de reposição */}
@@ -1396,8 +1531,150 @@ function TabInventario() {
     </div>
   )
 }
-const TABS = ['🏠','📋','📦','🥐','🛒','🗺️','📋','📊','🚨']
-const TAB_LABELS = ['Início','A.T.','BA Vidros','Config. Frescos','Frescos','Rota','Inventário','Gestão Rota','Piquete']
+// ── ABA PONTO ────────────────────────────────────────────────
+function TabPonto() {
+  const [rootId, setRootId] = useState(() => { try { return localStorage.getItem('ponto_root_id') || null } catch { return null } })
+  const [meses, setMeses] = useState([])
+  const [mesSel, setMesSel] = useState(null)
+  const [registos, setRegistos] = useState([])
+  const [carregando, setCarregando] = useState(false)
+  const [carregandoMeses, setCarregandoMeses] = useState(true)
+
+  useEffect(() => {
+    const loadRoot = async () => {
+      let rid = rootId
+      if (!rid) {
+        try {
+          const ch = await nGet(`blocks/${PAGE_IDS.rotaRoot}/children`, { page_size: 100 })
+          const ex = ch.results?.find(b => b.type === 'child_page' && b.child_page?.title === '⏱️ Ponto — Rota 606')
+          if (ex) { rid = ex.id; setRootId(rid); try { localStorage.setItem('ponto_root_id', rid) } catch {} }
+        } catch {}
+      }
+      if (!rid) { setCarregandoMeses(false); return }
+      try {
+        const ch = await nGet(`blocks/${rid}/children`, { page_size: 50 })
+        const ms = (ch.results || []).filter(b => b.type === 'child_page')
+          .map(b => ({ id: b.id, titulo: b.child_page?.title || '' })).reverse()
+        setMeses(ms)
+        if (ms.length > 0) { setMesSel(ms[0]); loadMes(ms[0].id) }
+      } catch {}
+      setCarregandoMeses(false)
+    }
+    loadRoot()
+  }, [])
+
+  const loadMes = async (mesId) => {
+    setCarregando(true)
+    setRegistos([])
+    try {
+      const ch = await nGet(`blocks/${mesId}/children`, { page_size: 50 })
+      const pages = (ch.results || []).filter(b => b.type === 'child_page')
+      const items = await Promise.all(pages.map(async (b) => {
+        const titulo = b.child_page?.title || ''
+        const dateMatch = titulo.match(/(\d{2}\/\d{2}\/\d{4})/)
+        const dateFmt = dateMatch?.[1] || ''
+        try {
+          const blocks = await nGet(`blocks/${b.id}/children`, { page_size: 10 })
+          const text = (blocks.results || []).filter(bl => bl.type === 'paragraph')
+            .map(bl => bl.paragraph?.rich_text?.map(t => t.plain_text).join('') || '').join('\n')
+          const parse = (label) => { const m = text.match(new RegExp(label+':\\s*(.+)')); return m?.[1]?.trim() || '' }
+          const hmToMin = (hm) => { const m = hm.match(/(\d+)h(\d+)m/); return m ? parseInt(m[1])*60+parseInt(m[2]) : 0 }
+          const entrada = parse('Entrada') || '05:00'
+          const saida = parse('Saída') || ''
+          const total = parse('Total') || ''
+          const normais = parse('Horas Normais') || ''
+          const extra = parse('Horas Extra') || ''
+          return { id:b.id, dateFmt, entrada, saida, total, normais, extra, totalMin:hmToMin(total), normalMin:hmToMin(normais), extraMin:hmToMin(extra) }
+        } catch { return { id:b.id, dateFmt, entrada:'05:00', saida:'', total:'', normais:'', extra:'', totalMin:0, normalMin:0, extraMin:0 } }
+      }))
+      items.sort((a,b) => { const f=d=>d.split('/').reverse().join('-'); return f(b.dateFmt||'00/00/0000').localeCompare(f(a.dateFmt||'00/00/0000')) })
+      setRegistos(items)
+    } catch {}
+    setCarregando(false)
+  }
+
+  const totais = registos.reduce((a,r) => ({ totalMin:a.totalMin+r.totalMin, normalMin:a.normalMin+r.normalMin, extraMin:a.extraMin+r.extraMin }), {totalMin:0,normalMin:0,extraMin:0})
+
+  return (
+    <div>
+      <div style={S.card}>
+        <div style={S.cardTitle}>⏱️ Registo de Ponto</div>
+        {carregandoMeses ? (
+          <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'12px'}}>A carregar…</div>
+        ) : meses.length === 0 ? (
+          <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'20px'}}>Sem registos ainda.<br/>Regista a saída na tab <strong style={{color:C.accent}}>Início</strong>.</div>
+        ) : (
+          <div style={{display:'flex',flexWrap:'wrap',gap:'6px'}}>
+            {meses.map(m => (
+              <button key={m.id} onClick={() => { setMesSel(m); loadMes(m.id) }}
+                style={{...S.btnSm, borderColor:mesSel?.id===m.id?C.accent:C.border, color:mesSel?.id===m.id?C.accent:C.muted, fontWeight:mesSel?.id===m.id?700:400}}>
+                {m.titulo}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {registos.length > 0 && (
+        <div style={{...S.card,border:`1px solid ${C.accent}44`,background:`${C.accent}08`}}>
+          <div style={{...S.cardTitle,color:C.accent,marginBottom:'10px'}}>📊 Totais — {mesSel?.titulo}</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px',marginBottom:'8px'}}>
+            <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:'8px',padding:'10px',textAlign:'center'}}>
+              <div style={{color:C.muted,fontSize:'10px',fontWeight:600,marginBottom:'4px'}}>TOTAL</div>
+              <div style={{color:C.text,fontSize:'15px',fontWeight:700}}>{minutesToHM(totais.totalMin)}</div>
+            </div>
+            <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:'8px',padding:'10px',textAlign:'center'}}>
+              <div style={{color:C.muted,fontSize:'10px',fontWeight:600,marginBottom:'4px'}}>NORMAIS</div>
+              <div style={{color:C.text,fontSize:'15px',fontWeight:700}}>{minutesToHM(totais.normalMin)}</div>
+            </div>
+            <div style={{background:totais.extraMin>0?`${C.warning}11`:C.bg,border:`1px solid ${totais.extraMin>0?C.warning+'44':C.border}`,borderRadius:'8px',padding:'10px',textAlign:'center'}}>
+              <div style={{color:C.muted,fontSize:'10px',fontWeight:600,marginBottom:'4px'}}>EXTRA</div>
+              <div style={{color:totais.extraMin>0?C.warning:C.muted,fontSize:'15px',fontWeight:700}}>{minutesToHM(totais.extraMin)}</div>
+            </div>
+          </div>
+          <div style={{color:C.muted,fontSize:'12px',textAlign:'center'}}>{registos.length} dia{registos.length!==1?'s':''} registado{registos.length!==1?'s':''}</div>
+        </div>
+      )}
+
+      {carregando ? (
+        <div style={{...S.card,textAlign:'center',color:C.muted,padding:'24px'}}>A carregar registos…</div>
+      ) : registos.length > 0 && (
+        <div style={S.card}>
+          <div style={S.cardTitle}>📋 Dias Registados</div>
+          <div style={{overflowX:'auto'}}>
+            <table style={S.table}>
+              <thead>
+                <tr>
+                  <th style={S.th}>Data</th>
+                  <th style={S.th}>Entrada</th>
+                  <th style={S.th}>Saída</th>
+                  <th style={S.th}>Normal</th>
+                  <th style={{...S.th,color:C.warning}}>Extra</th>
+                  <th style={S.th}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {registos.map((r,i) => (
+                  <tr key={i}>
+                    <td style={{...S.td,fontWeight:600,color:C.accent}}>{r.dateFmt}</td>
+                    <td style={S.td}>{r.entrada}</td>
+                    <td style={{...S.td,fontWeight:600}}>{r.saida}</td>
+                    <td style={S.td}>{r.normais||'—'}</td>
+                    <td style={{...S.td,color:r.extraMin>0?C.warning:C.muted,fontWeight:r.extraMin>0?600:400}}>{r.extra||'00h00m'}</td>
+                    <td style={{...S.td,fontWeight:700,color:C.text}}>{r.total||'—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const TABS = ['🏠','📋','📦','🥐','🛒','🗺️','📋','📊','⏱️','🚨']
+const TAB_LABELS = ['Início','A.T.','BA Vidros','Config. Frescos','Frescos','Rota','Inventário','Gestão Rota','Ponto','Piquete']
 
 function Dashboard() {
   const [tab,setTab] = useState(0)
@@ -1587,7 +1864,8 @@ function Dashboard() {
         {tab===5 && <TabRota onVerFresco={setFrescoAtivo}/>}
         {tab===6 && <TabInventario/>}
         {tab===7 && <TabGestaoRota/>}
-        {tab===8 && <TabPiquete/>}
+        {tab===8 && <TabPonto/>}
+        {tab===9 && <TabPiquete/>}
       </main>
     </div>
   )
