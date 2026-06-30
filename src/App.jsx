@@ -280,7 +280,7 @@ function FrescoDetalhe({fresco, onBack}) {
 // ── ABA INÍCIO ────────────────────────────────────────────────
 function TabInicio({chamados,loading,onVerFresco,onVerAT,pdvYoung,pdv1050,pdvYoungEdit,pdv1050Edit}) {
   const ENTRADA_FIXA = '05:00'
-  const JORNADA_MIN = 7 * 60
+  const JORNADA_MIN = 8 * 60
 
   const [pontoHoje, setPontoHoje] = useState(() => {
     try {
@@ -1533,12 +1533,43 @@ function TabInventario() {
 }
 // ── ABA PONTO ────────────────────────────────────────────────
 function TabPonto() {
+  const JORNADA_MIN = 8 * 60
+  const ENTRADA_FIXA = '05:00'
+
   const [rootId, setRootId] = useState(() => { try { return localStorage.getItem('ponto_root_id') || null } catch { return null } })
   const [meses, setMeses] = useState([])
   const [mesSel, setMesSel] = useState(null)
   const [registos, setRegistos] = useState([])
   const [carregando, setCarregando] = useState(false)
   const [carregandoMeses, setCarregandoMeses] = useState(true)
+
+  // Edit modal
+  const [editando, setEditando] = useState(null) // { registo }
+  const [editSaida, setEditSaida] = useState('')
+  const [salvandoEdit, setSalvandoEdit] = useState(false)
+
+  // Delete confirm
+  const [confirmApagar, setConfirmApagar] = useState(null) // registo
+  const [apagando, setApagando] = useState(false)
+
+  // Manual registration
+  const [mostrarManual, setMostrarManual] = useState(false)
+  const [manualData, setManualData] = useState('')
+  const [manualSaida, setManualSaida] = useState('')
+  const [salvandoManual, setSalvandoManual] = useState(false)
+  const [manualOk, setManualOk] = useState(false)
+
+  const hmToMin = (hm) => { const m = hm.match(/(\d+)h(\d+)m/); return m ? parseInt(m[1])*60+parseInt(m[2]) : 0 }
+
+  const calcular = (saida) => {
+    const totalMin = timeToMin(saida) - timeToMin(ENTRADA_FIXA)
+    const normalMin = Math.min(totalMin, JORNADA_MIN)
+    const extraMin = Math.max(0, totalMin - JORNADA_MIN)
+    return { totalMin, normalMin, extraMin }
+  }
+
+  const buildContent = (saida, totalMin, normalMin, extraMin) =>
+    `Entrada: ${ENTRADA_FIXA}\nSaída: ${saida}\nTotal: ${minutesToHM(totalMin)}\nHoras Normais: ${minutesToHM(normalMin)}\nHoras Extra: ${minutesToHM(extraMin)}`
 
   useEffect(() => {
     const loadRoot = async () => {
@@ -1574,18 +1605,18 @@ function TabPonto() {
         const dateMatch = titulo.match(/(\d{2}\/\d{2}\/\d{4})/)
         const dateFmt = dateMatch?.[1] || ''
         try {
-          const blocks = await nGet(`blocks/${b.id}/children`, { page_size: 10 })
-          const text = (blocks.results || []).filter(bl => bl.type === 'paragraph')
-            .map(bl => bl.paragraph?.rich_text?.map(t => t.plain_text).join('') || '').join('\n')
+          const blks = await nGet(`blocks/${b.id}/children`, { page_size: 10 })
+          const paraBlk = (blks.results || []).find(bl => bl.type === 'paragraph')
+          const blockId = paraBlk?.id || null
+          const text = paraBlk?.paragraph?.rich_text?.map(t => t.plain_text).join('') || ''
           const parse = (label) => { const m = text.match(new RegExp(label+':\\s*(.+)')); return m?.[1]?.trim() || '' }
-          const hmToMin = (hm) => { const m = hm.match(/(\d+)h(\d+)m/); return m ? parseInt(m[1])*60+parseInt(m[2]) : 0 }
-          const entrada = parse('Entrada') || '05:00'
+          const entrada = parse('Entrada') || ENTRADA_FIXA
           const saida = parse('Saída') || ''
           const total = parse('Total') || ''
           const normais = parse('Horas Normais') || ''
           const extra = parse('Horas Extra') || ''
-          return { id:b.id, dateFmt, entrada, saida, total, normais, extra, totalMin:hmToMin(total), normalMin:hmToMin(normais), extraMin:hmToMin(extra) }
-        } catch { return { id:b.id, dateFmt, entrada:'05:00', saida:'', total:'', normais:'', extra:'', totalMin:0, normalMin:0, extraMin:0 } }
+          return { id:b.id, blockId, dateFmt, entrada, saida, total, normais, extra, totalMin:hmToMin(total), normalMin:hmToMin(normais), extraMin:hmToMin(extra) }
+        } catch { return { id:b.id, blockId:null, dateFmt, entrada:ENTRADA_FIXA, saida:'', total:'', normais:'', extra:'', totalMin:0, normalMin:0, extraMin:0 } }
       }))
       items.sort((a,b) => { const f=d=>d.split('/').reverse().join('-'); return f(b.dateFmt||'00/00/0000').localeCompare(f(a.dateFmt||'00/00/0000')) })
       setRegistos(items)
@@ -1593,28 +1624,208 @@ function TabPonto() {
     setCarregando(false)
   }
 
+  // ── Edit save ────────────────────────────────────────────────
+  const salvarEdit = async () => {
+    if (!editando || !editSaida) return
+    setSalvandoEdit(true)
+    try {
+      const { totalMin, normalMin, extraMin } = calcular(editSaida)
+      const content = buildContent(editSaida, totalMin, normalMin, extraMin)
+      if (editando.blockId) {
+        await nPatch(`blocks/${editando.blockId}`, { paragraph:{ rich_text:[{ type:'text', text:{ content } }] } })
+      } else {
+        // create paragraph block if missing
+        await nPost(`blocks/${editando.id}/children`, { children:[{ object:'block', type:'paragraph', paragraph:{ rich_text:[{ type:'text', text:{ content } }] } }] })
+      }
+      setRegistos(prev => prev.map(r => r.id === editando.id
+        ? { ...r, saida:editSaida, total:minutesToHM(totalMin), normais:minutesToHM(normalMin), extra:minutesToHM(extraMin), totalMin, normalMin, extraMin }
+        : r))
+      setEditando(null)
+    } catch(e) { console.error(e) }
+    setSalvandoEdit(false)
+  }
+
+  // ── Delete ───────────────────────────────────────────────────
+  const apagarRegisto = async () => {
+    if (!confirmApagar) return
+    setApagando(true)
+    try {
+      await nPatch(`pages/${confirmApagar.id}`, { archived: true })
+      setRegistos(prev => prev.filter(r => r.id !== confirmApagar.id))
+      setConfirmApagar(null)
+    } catch(e) { console.error(e) }
+    setApagando(false)
+  }
+
+  // ── Manual registration ──────────────────────────────────────
+  const salvarManual = async () => {
+    if (!manualData || !manualSaida) return
+    setSalvandoManual(true)
+    try {
+      // manualData = "YYYY-MM-DD"
+      const [y,m,d] = manualData.split('-').map(Number)
+      const dateFmt = `${String(d).padStart(2,'0')}/${String(m).padStart(2,'0')}/${y}`
+      const mesIdx = m - 1
+      const mesLabel = `${MESES_PT[mesIdx].charAt(0).toUpperCase()+MESES_PT[mesIdx].slice(1)}/${y}`
+      const { totalMin, normalMin, extraMin } = calcular(manualSaida)
+
+      let rid = rootId
+      if (!rid) {
+        const ch = await nGet(`blocks/${PAGE_IDS.rotaRoot}/children`, { page_size: 100 })
+        const ex = ch.results?.find(b => b.type === 'child_page' && b.child_page?.title === '⏱️ Ponto — Rota 606')
+        rid = ex ? ex.id : (await nPost('pages', { parent:{ page_id:PAGE_IDS.rotaRoot }, properties:{ title:{ title:[{ text:{ content:'⏱️ Ponto — Rota 606' } }] } }, icon:{ type:'emoji', emoji:'⏱️' } })).id
+        setRootId(rid); try { localStorage.setItem('ponto_root_id', rid) } catch {}
+      }
+
+      const mesKey = `ponto_mes_${y}_${mesIdx}`
+      let mesId = localStorage.getItem(mesKey) || null
+      if (!mesId) {
+        const chMes = await nGet(`blocks/${rid}/children`, { page_size: 50 })
+        const exMes = chMes.results?.find(b => b.type === 'child_page' && b.child_page?.title === mesLabel)
+        mesId = exMes ? exMes.id : (await nPost('pages', { parent:{ page_id:rid }, properties:{ title:{ title:[{ text:{ content:mesLabel } }] } } })).id
+        try { localStorage.setItem(mesKey, mesId) } catch {}
+        // refresh month list
+        const chR = await nGet(`blocks/${rid}/children`, { page_size: 50 })
+        const ms = (chR.results || []).filter(b => b.type === 'child_page').map(b => ({ id:b.id, titulo:b.child_page?.title||'' })).reverse()
+        setMeses(ms)
+      }
+
+      const content = buildContent(manualSaida, totalMin, normalMin, extraMin)
+      const pg = await nPost('pages', {
+        parent:{ page_id:mesId },
+        properties:{ title:{ title:[{ text:{ content:`⏱️ Ponto — ${dateFmt}` } }] } },
+        icon:{ type:'emoji', emoji:'⏱️' },
+        children:[{ object:'block', type:'paragraph', paragraph:{ rich_text:[{ type:'text', text:{ content } }] } }]
+      })
+
+      const novoRegisto = { id:pg.id, blockId:null, dateFmt, entrada:ENTRADA_FIXA, saida:manualSaida, total:minutesToHM(totalMin), normais:minutesToHM(normalMin), extra:minutesToHM(extraMin), totalMin, normalMin, extraMin }
+      // Only add to list if the current month is selected
+      if (mesSel?.titulo === mesLabel) {
+        setRegistos(prev => [novoRegisto, ...prev].sort((a,b) => { const f=d=>d.split('/').reverse().join('-'); return f(b.dateFmt||'00/00/0000').localeCompare(f(a.dateFmt||'00/00/0000')) }))
+      }
+      setManualData(''); setManualSaida(''); setMostrarManual(false); setManualOk(true)
+      setTimeout(() => setManualOk(false), 3000)
+    } catch(e) { console.error(e) }
+    setSalvandoManual(false)
+  }
+
   const totais = registos.reduce((a,r) => ({ totalMin:a.totalMin+r.totalMin, normalMin:a.normalMin+r.normalMin, extraMin:a.extraMin+r.extraMin }), {totalMin:0,normalMin:0,extraMin:0})
+
+  // Preview calc for manual form
+  const manualCalc = manualSaida ? calcular(manualSaida) : null
 
   return (
     <div>
+      {/* Edit modal */}
+      {editando && (
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'#000000bb',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
+          <div style={{background:C.card,border:`1px solid ${C.accent}44`,borderRadius:'12px',padding:'24px',maxWidth:'320px',width:'100%'}}>
+            <div style={{fontWeight:700,fontSize:'15px',color:C.text,marginBottom:'4px'}}>✏️ Editar Registo</div>
+            <div style={{color:C.muted,fontSize:'12px',marginBottom:'16px'}}>{editando.dateFmt}</div>
+            <div style={{marginBottom:'8px'}}>
+              <div style={{color:C.muted,fontSize:'11px',fontWeight:600,marginBottom:'6px'}}>ENTRADA (fixo)</div>
+              <div style={{color:C.muted,background:C.bg,border:`1px solid ${C.border}`,borderRadius:'6px',padding:'8px 12px',fontSize:'14px'}}>{ENTRADA_FIXA}</div>
+            </div>
+            <div style={{marginBottom:'16px'}}>
+              <div style={{color:C.muted,fontSize:'11px',fontWeight:600,marginBottom:'6px'}}>SAÍDA</div>
+              <input type="time" value={editSaida} onChange={e=>setEditSaida(e.target.value)}
+                style={{...S.input,fontSize:'18px',fontWeight:700,color:C.accent}} />
+            </div>
+            {editSaida && (() => { const {totalMin,normalMin,extraMin}=calcular(editSaida); return (
+              <div style={{background:`${C.accent}08`,border:`1px solid ${C.accent}22`,borderRadius:'8px',padding:'10px',marginBottom:'14px',display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px',textAlign:'center'}}>
+                <div><div style={{color:C.muted,fontSize:'10px',fontWeight:600}}>TOTAL</div><div style={{color:C.text,fontWeight:700,fontSize:'13px'}}>{minutesToHM(totalMin)}</div></div>
+                <div><div style={{color:C.muted,fontSize:'10px',fontWeight:600}}>NORMAL</div><div style={{color:C.text,fontWeight:700,fontSize:'13px'}}>{minutesToHM(normalMin)}</div></div>
+                <div><div style={{color:C.muted,fontSize:'10px',fontWeight:600}}>EXTRA</div><div style={{color:extraMin>0?C.warning:C.muted,fontWeight:700,fontSize:'13px'}}>{minutesToHM(extraMin)}</div></div>
+              </div>
+            )})()}
+            <div style={{display:'flex',gap:'8px'}}>
+              <button onClick={()=>setEditando(null)} style={{flex:1,...S.btnSm}}>Cancelar</button>
+              <button onClick={salvarEdit} disabled={!editSaida||salvandoEdit} style={{flex:1,...S.btn,opacity:(!editSaida||salvandoEdit)?0.5:1}}>
+                {salvandoEdit?'A guardar…':'💾 Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm modal */}
+      {confirmApagar && (
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'#000000bb',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'24px'}}>
+          <div style={{background:C.card,border:`1px solid ${C.danger}44`,borderRadius:'12px',padding:'24px',maxWidth:'300px',width:'100%'}}>
+            <div style={{fontSize:'24px',textAlign:'center',marginBottom:'10px'}}>🗑️</div>
+            <div style={{fontWeight:600,textAlign:'center',color:C.text,marginBottom:'6px'}}>Apagar registo?</div>
+            <div style={{color:C.muted,fontSize:'13px',textAlign:'center',marginBottom:'18px'}}>{confirmApagar.dateFmt} · {confirmApagar.saida}</div>
+            <div style={{display:'flex',gap:'8px'}}>
+              <button onClick={()=>setConfirmApagar(null)} style={{flex:1,...S.btnSm}}>Cancelar</button>
+              <button onClick={apagarRegisto} disabled={apagando} style={{flex:1,...S.btnDanger,opacity:apagando?0.5:1}}>
+                {apagando?'A apagar…':'Apagar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Month filter */}
       <div style={S.card}>
-        <div style={S.cardTitle}>⏱️ Registo de Ponto</div>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'12px'}}>
+          <div style={S.cardTitle}>⏱️ Registo de Ponto</div>
+          <button onClick={()=>setMostrarManual(v=>!v)}
+            style={{...S.btnSm,borderColor:mostrarManual?C.accent:C.border,color:mostrarManual?C.accent:C.muted}}>
+            {mostrarManual?'✕ Fechar':'+ Registo Manual'}
+          </button>
+        </div>
         {carregandoMeses ? (
           <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'12px'}}>A carregar…</div>
         ) : meses.length === 0 ? (
-          <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'20px'}}>Sem registos ainda.<br/>Regista a saída na tab <strong style={{color:C.accent}}>Início</strong>.</div>
+          <div style={{color:C.muted,fontSize:'13px',textAlign:'center',padding:'20px'}}>Sem registos ainda.<br/>Regista a saída na tab <strong style={{color:C.accent}}>Início</strong> ou usa o Registo Manual.</div>
         ) : (
           <div style={{display:'flex',flexWrap:'wrap',gap:'6px'}}>
             {meses.map(m => (
               <button key={m.id} onClick={() => { setMesSel(m); loadMes(m.id) }}
-                style={{...S.btnSm, borderColor:mesSel?.id===m.id?C.accent:C.border, color:mesSel?.id===m.id?C.accent:C.muted, fontWeight:mesSel?.id===m.id?700:400}}>
+                style={{...S.btnSm,borderColor:mesSel?.id===m.id?C.accent:C.border,color:mesSel?.id===m.id?C.accent:C.muted,fontWeight:mesSel?.id===m.id?700:400}}>
                 {m.titulo}
               </button>
             ))}
           </div>
         )}
+        {manualOk && <div style={{color:C.accent,fontSize:'12px',fontWeight:600,marginTop:'10px'}}>✅ Registo manual guardado no Notion!</div>}
       </div>
 
+      {/* Manual registration form */}
+      {mostrarManual && (
+        <div style={{...S.card,border:`1px solid ${C.accent}44`,background:`${C.accent}05`}}>
+          <div style={{...S.cardTitle,color:C.accent}}>📝 Registo Manual</div>
+          <div style={{marginBottom:'10px'}}>
+            <div style={{color:C.muted,fontSize:'11px',fontWeight:600,marginBottom:'6px'}}>ENTRADA (fixo)</div>
+            <div style={{color:C.muted,background:C.bg,border:`1px solid ${C.border}`,borderRadius:'6px',padding:'8px 12px',fontSize:'14px'}}>05:00</div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'12px'}}>
+            <div>
+              <div style={{color:C.muted,fontSize:'11px',fontWeight:600,marginBottom:'6px'}}>DATA</div>
+              <input type="date" value={manualData} onChange={e=>setManualData(e.target.value)}
+                style={{...S.input}} />
+            </div>
+            <div>
+              <div style={{color:C.muted,fontSize:'11px',fontWeight:600,marginBottom:'6px'}}>SAÍDA</div>
+              <input type="time" value={manualSaida} onChange={e=>setManualSaida(e.target.value)}
+                style={{...S.input,fontWeight:700,color:C.accent}} />
+            </div>
+          </div>
+          {manualCalc && (
+            <div style={{background:`${C.accent}08`,border:`1px solid ${C.accent}22`,borderRadius:'8px',padding:'10px',marginBottom:'12px',display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px',textAlign:'center'}}>
+              <div><div style={{color:C.muted,fontSize:'10px',fontWeight:600}}>TOTAL</div><div style={{color:C.text,fontWeight:700,fontSize:'14px'}}>{minutesToHM(manualCalc.totalMin)}</div></div>
+              <div><div style={{color:C.muted,fontSize:'10px',fontWeight:600}}>NORMAIS</div><div style={{color:C.text,fontWeight:700,fontSize:'14px'}}>{minutesToHM(manualCalc.normalMin)}</div></div>
+              <div><div style={{color:C.muted,fontSize:'10px',fontWeight:600}}>EXTRA</div><div style={{color:manualCalc.extraMin>0?C.warning:C.muted,fontWeight:700,fontSize:'14px'}}>{minutesToHM(manualCalc.extraMin)}</div></div>
+            </div>
+          )}
+          <button onClick={salvarManual} disabled={!manualData||!manualSaida||salvandoManual}
+            style={{...S.btn,width:'100%',opacity:(!manualData||!manualSaida||salvandoManual)?0.5:1}}>
+            {salvandoManual?'A guardar…':'💾 Guardar Registo'}
+          </button>
+        </div>
+      )}
+
+      {/* Monthly totals */}
       {registos.length > 0 && (
         <div style={{...S.card,border:`1px solid ${C.accent}44`,background:`${C.accent}08`}}>
           <div style={{...S.cardTitle,color:C.accent,marginBottom:'10px'}}>📊 Totais — {mesSel?.titulo}</div>
@@ -1636,6 +1847,7 @@ function TabPonto() {
         </div>
       )}
 
+      {/* Day list */}
       {carregando ? (
         <div style={{...S.card,textAlign:'center',color:C.muted,padding:'24px'}}>A carregar registos…</div>
       ) : registos.length > 0 && (
@@ -1651,17 +1863,26 @@ function TabPonto() {
                   <th style={S.th}>Normal</th>
                   <th style={{...S.th,color:C.warning}}>Extra</th>
                   <th style={S.th}>Total</th>
+                  <th style={S.th}></th>
                 </tr>
               </thead>
               <tbody>
                 {registos.map((r,i) => (
                   <tr key={i}>
-                    <td style={{...S.td,fontWeight:600,color:C.accent}}>{r.dateFmt}</td>
-                    <td style={S.td}>{r.entrada}</td>
-                    <td style={{...S.td,fontWeight:600}}>{r.saida}</td>
-                    <td style={S.td}>{r.normais||'—'}</td>
-                    <td style={{...S.td,color:r.extraMin>0?C.warning:C.muted,fontWeight:r.extraMin>0?600:400}}>{r.extra||'00h00m'}</td>
-                    <td style={{...S.td,fontWeight:700,color:C.text}}>{r.total||'—'}</td>
+                    <td style={{...S.td,fontWeight:600,color:C.accent,whiteSpace:'nowrap'}}>{r.dateFmt}</td>
+                    <td style={{...S.td,whiteSpace:'nowrap'}}>{r.entrada}</td>
+                    <td style={{...S.td,fontWeight:600,whiteSpace:'nowrap'}}>{r.saida}</td>
+                    <td style={{...S.td,whiteSpace:'nowrap'}}>{r.normais||'—'}</td>
+                    <td style={{...S.td,color:r.extraMin>0?C.warning:C.muted,fontWeight:r.extraMin>0?600:400,whiteSpace:'nowrap'}}>{r.extra||'00h00m'}</td>
+                    <td style={{...S.td,fontWeight:700,color:C.text,whiteSpace:'nowrap'}}>{r.total||'—'}</td>
+                    <td style={{...S.td,whiteSpace:'nowrap'}}>
+                      <div style={{display:'flex',gap:'4px'}}>
+                        <button onClick={()=>{setEditando(r);setEditSaida(r.saida||'')}}
+                          style={{background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:'4px',padding:'3px 7px',cursor:'pointer',fontSize:'11px'}}>✏️</button>
+                        <button onClick={()=>setConfirmApagar(r)}
+                          style={{background:'transparent',border:'1px solid #F8514944',color:C.danger,borderRadius:'4px',padding:'3px 7px',cursor:'pointer',fontSize:'11px'}}>🗑</button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
